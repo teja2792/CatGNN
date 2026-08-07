@@ -134,28 +134,67 @@ def flatten_doc(doc: Any) -> dict | None:
 # Functional (energy_type) lookup
 # ---------------------------------------------------------------------------
 
-def fetch_energy_types(mpr, material_ids: list[str], batch: int = 1000) -> dict[str, str]:
-    """Which DFT functional produced each entry: GGA, GGA+U or r2SCAN.
+# Preference used to pick a single "primary" functional when a material has more
+# than one. Materials Project's summary band_gap and formation energy come from
+# the GGA/GGA+U workflow for the great majority of entries, with r2SCAN carried
+# alongside as a separate thermo record. This ordering encodes that, and is
+# deliberately a named constant rather than a hidden sort so it can be challenged.
+#
+# Verify with: python scripts/diagnose_functional.py
+FUNCTIONAL_PREFERENCE = ("GGA+U", "GGA", "R2SCAN", "r2SCAN")
+
+
+def _rank(energy_type: str) -> int:
+    for i, name in enumerate(FUNCTIONAL_PREFERENCE):
+        if energy_type.upper() == name.upper():
+            return i
+    return len(FUNCTIONAL_PREFERENCE)
+
+
+def fetch_energy_types(mpr, material_ids: list[str], batch: int = 1000) -> dict[str, dict]:
+    """Which DFT functional(s) produced each entry: GGA, GGA+U, r2SCAN.
 
     Lives in the thermo endpoint rather than summary, so it needs its own call.
     Worth every second: a band gap without its functional is not a usable number,
-    and comparing a GGA gap against a GGA+U gap is a methodological error that
-    produces perfectly plausible-looking nonsense.
+    and pooling a GGA gap with a GGA+U gap is a methodological error that produces
+    perfectly plausible-looking nonsense.
+
+    **A material usually has more than one thermo record** -- Materials Project
+    computes many entries under both the GGA/GGA+U workflow and r2SCAN. An earlier
+    version of this function kept whichever record the API happened to return
+    first, which meant the recorded functional depended on network ordering. That
+    is not a decision; it is a coin flip that silently mislabels the data.
+
+    So we keep *all* of them, plus a deterministic `primary` chosen by
+    FUNCTIONAL_PREFERENCE, plus an `ambiguous` flag marking the materials where
+    the choice actually mattered. Downstream code can then group by primary while
+    still being able to find, count, and exclude the ambiguous cases -- rather
+    than never learning they existed.
     """
-    out: dict[str, str] = {}
+    found: dict[str, set] = {}
     for i in range(0, len(material_ids), batch):
         block = material_ids[i : i + batch]
         try:
             docs = mpr.materials.thermo.search(
-                material_ids=block, fields=["material_id", "energy_type"]
+                material_ids=block, fields=["material_id", "energy_type", "thermo_type"]
             )
             for d in docs:
                 mid = str(getattr(d, "material_id", ""))
                 et = getattr(d, "energy_type", None)
-                if mid and et and mid not in out:
-                    out[mid] = str(et)
+                if not mid or not et:
+                    continue
+                found.setdefault(mid, set()).add(str(et))
         except Exception as exc:  # noqa: BLE001
             print(f"    ! thermo lookup failed for batch {i // batch}: {exc}")
+
+    out: dict[str, dict] = {}
+    for mid, types in found.items():
+        ordered = sorted(types, key=_rank)
+        out[mid] = {
+            "energy_type": ordered[0],
+            "energy_types_available": sorted(types),
+            "energy_type_ambiguous": len(types) > 1,
+        }
     return out
 
 
@@ -448,8 +487,11 @@ def download(
 
 
 def _flush(mpr, buffer: list[dict], index: int) -> None:
-    """Attach the DFT functional to a buffer of rows, then write it out."""
+    """Attach the DFT functional(s) to a buffer of rows, then write it out."""
     et = fetch_energy_types(mpr, [r["material_id"] for r in buffer])
     for r in buffer:
-        r["energy_type"] = et.get(r["material_id"])
+        info = et.get(r["material_id"]) or {}
+        r["energy_type"] = info.get("energy_type")
+        r["energy_types_available"] = info.get("energy_types_available")
+        r["energy_type_ambiguous"] = info.get("energy_type_ambiguous")
     write_chunk(buffer, index)

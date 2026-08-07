@@ -249,3 +249,97 @@ def test_dotenv_is_gitignored():
     """The single most important line in .gitignore for this phase."""
     patterns = (REPO / ".gitignore").read_text(encoding="utf-8")
     assert "\n.env" in patterns or patterns.startswith(".env")
+
+
+# ---------------------------------------------------------------------------
+# Functional (energy_type) handling
+#
+# Materials Project returns MORE THAN ONE thermo record per material -- the probe
+# showed 6 records for 3 materials. An earlier version kept whichever arrived
+# first, making the recorded functional depend on network ordering. These tests
+# pin down the fix.
+# ---------------------------------------------------------------------------
+
+class FakeMPR:
+    """Stands in for MPRester, returning thermo records in a chosen order."""
+
+    def __init__(self, records):
+        self._records = records
+        self.materials = types.SimpleNamespace(thermo=types.SimpleNamespace(search=self._search))
+
+    def _search(self, material_ids=None, fields=None):
+        return [
+            types.SimpleNamespace(**r)
+            for r in self._records
+            if r["material_id"] in set(material_ids or [])
+        ]
+
+
+def test_all_functionals_are_kept_not_just_the_first():
+    mpr = FakeMPR([
+        {"material_id": "mp-1", "energy_type": "r2SCAN", "thermo_type": "R2SCAN"},
+        {"material_id": "mp-1", "energy_type": "GGA", "thermo_type": "GGA_GGA+U"},
+    ])
+    info = mp_download.fetch_energy_types(mpr, ["mp-1"])["mp-1"]
+
+    assert info["energy_types_available"] == ["GGA", "r2SCAN"]
+    assert info["energy_type_ambiguous"] is True
+
+
+def test_primary_functional_does_not_depend_on_api_ordering():
+    """The bug this replaced: whichever record arrived first won.
+
+    Same two records, opposite order, must give the same answer -- otherwise the
+    dataset's labels are a function of network timing.
+    """
+    a = [
+        {"material_id": "mp-1", "energy_type": "r2SCAN", "thermo_type": "R2SCAN"},
+        {"material_id": "mp-1", "energy_type": "GGA", "thermo_type": "GGA_GGA+U"},
+    ]
+    first = mp_download.fetch_energy_types(FakeMPR(a), ["mp-1"])["mp-1"]
+    second = mp_download.fetch_energy_types(FakeMPR(list(reversed(a))), ["mp-1"])["mp-1"]
+
+    assert first == second
+    assert first["energy_type"] == "GGA"  # per FUNCTIONAL_PREFERENCE
+
+
+def test_single_functional_is_not_flagged_ambiguous():
+    mpr = FakeMPR([{"material_id": "mp-2", "energy_type": "GGA+U", "thermo_type": "GGA_GGA+U"}])
+    info = mp_download.fetch_energy_types(mpr, ["mp-2"])["mp-2"]
+
+    assert info["energy_type"] == "GGA+U"
+    assert info["energy_type_ambiguous"] is False
+
+
+def test_functional_preference_order_is_respected():
+    mpr = FakeMPR([
+        {"material_id": "mp-3", "energy_type": "r2SCAN", "thermo_type": "R2SCAN"},
+        {"material_id": "mp-3", "energy_type": "GGA+U", "thermo_type": "GGA_GGA+U"},
+        {"material_id": "mp-3", "energy_type": "GGA", "thermo_type": "GGA_GGA+U"},
+    ])
+    assert mp_download.fetch_energy_types(mpr, ["mp-3"])["mp-3"]["energy_type"] == "GGA+U"
+
+
+def test_unknown_functional_sorts_last_but_is_kept():
+    """A functional we have never seen must not silently outrank a known one."""
+    mpr = FakeMPR([
+        {"material_id": "mp-4", "energy_type": "SOMETHING_NEW", "thermo_type": "?"},
+        {"material_id": "mp-4", "energy_type": "GGA", "thermo_type": "GGA_GGA+U"},
+    ])
+    info = mp_download.fetch_energy_types(mpr, ["mp-4"])["mp-4"]
+
+    assert info["energy_type"] == "GGA"
+    assert "SOMETHING_NEW" in info["energy_types_available"]
+
+
+def test_thermo_failure_does_not_abort_the_download():
+    """A dropped thermo call must lose the functional, not the structures."""
+    class Broken:
+        def __init__(self):
+            self.materials = types.SimpleNamespace(
+                thermo=types.SimpleNamespace(search=self._boom))
+
+        def _boom(self, **kwargs):
+            raise RuntimeError("gateway timeout")
+
+    assert mp_download.fetch_energy_types(Broken(), ["mp-1"]) == {}
