@@ -35,7 +35,7 @@ PHASES = [
     ("Foundations", 0, "Scope, sourcing and hardware budget",
      "Governance docs, motivating figures, laptop benchmark", DONE),
     ("Foundations", 1, "Data layer",
-     "Download, build periodic graphs, cache, leakage-aware splits", TODO),
+     "Download, build periodic graphs, cache, leakage-aware splits", ACTIVE),
     ("Foundations", 2, "Chemical descriptors and baselines",
      "The bar every neural network has to clear", TODO),
     ("Models", 3, "CGCNN, written from scratch",
