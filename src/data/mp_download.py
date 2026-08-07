@@ -309,6 +309,44 @@ def probe(api_key: str, n: int = 3) -> None:
 # Full download
 # ---------------------------------------------------------------------------
 
+OPTIONAL_SEARCH_KWARGS = ("deprecated", "theoretical", "num_sites")
+
+
+def _search_tolerantly(mpr, kwargs: dict):
+    """Run a summary search, dropping filter arguments this mp-api version rejects.
+
+    mp-api's search signature moves between releases -- filters get renamed,
+    added, or pushed behind a different endpoint. Rather than pin an exact
+    version (which rots) or let a one-word mismatch abort a long download, we
+    retry without the offending optional filter and say loudly which one was
+    dropped, so the manifest and the console never disagree about what was
+    actually queried.
+
+    `fields` is never dropped: without it we would silently download the wrong
+    columns, which is far worse than a crash.
+    """
+    kwargs = dict(kwargs)
+    dropped: list[str] = []
+
+    for _ in range(len(OPTIONAL_SEARCH_KWARGS) + 1):
+        try:
+            return mpr.materials.summary.search(**kwargs)
+        except TypeError as exc:
+            msg = str(exc)
+            victim = next(
+                (k for k in OPTIONAL_SEARCH_KWARGS if k in kwargs and k in msg), None
+            )
+            if victim is None:
+                raise
+            kwargs.pop(victim)
+            dropped.append(victim)
+            print(f"    ! this mp-api version rejected '{victim}' -- retrying without it")
+
+    if dropped:
+        print(f"    ! filters not applied server-side: {dropped}; filtering locally instead")
+    return mpr.materials.summary.search(**kwargs)
+
+
 def download(
     api_key: str,
     max_materials: int | None = None,
@@ -333,7 +371,7 @@ def download(
     t0 = time.perf_counter()
     buffer: list[dict] = []
     index = next_chunk_index()
-    written = skipped_disordered = skipped_dupe = 0
+    written = skipped_disordered = skipped_dupe = skipped_filtered = 0
 
     print(f"  querying materials with {min_sites} <= nsites <= {max_sites} ...")
     with MPRester(api_key) as mpr:
@@ -345,7 +383,7 @@ def download(
         if exclude_theoretical:
             search_kwargs["theoretical"] = False
 
-        docs = mpr.materials.summary.search(**search_kwargs)
+        docs = _search_tolerantly(mpr, search_kwargs)
         total = len(docs)
         print(f"  {total:,} materials match. Downloading...\n")
 
@@ -353,6 +391,21 @@ def download(
             mid = str(getattr(doc, "material_id", ""))
             if mid in already:
                 skipped_dupe += 1
+                continue
+
+            # Enforce the filters locally as well as server-side. If a filter was
+            # dropped by _search_tolerantly, this is what still makes the dataset
+            # match its manifest -- a manifest that describes a filter nobody
+            # applied is worse than no manifest.
+            ns = getattr(doc, "nsites", None)
+            if ns is not None and not (min_sites <= ns <= max_sites):
+                skipped_filtered += 1
+                continue
+            if getattr(doc, "deprecated", False):
+                skipped_filtered += 1
+                continue
+            if exclude_theoretical and getattr(doc, "theoretical", False):
+                skipped_filtered += 1
                 continue
 
             row = flatten_doc(doc)
@@ -386,6 +439,7 @@ def download(
         "already_present": len(already),
         "total_on_disk": written + len(already),
         "skipped_disordered": skipped_disordered,
+        "skipped_filtered_locally": skipped_filtered,
         "skipped_already_present": skipped_dupe,
         "seconds": round(elapsed, 1),
         "manifest": str(manifest),
