@@ -1,0 +1,49 @@
+{
+  "machine": {
+    "cpu": "AMD Ryzen 5 5500U with Radeon Graphics",
+    "physical_cores": 1,
+    "logical_cores": 2,
+    "platform": "Linux-6.8.0-124-generic-x86_64-with-glibc2.35",
+    "python": "3.10.12",
+    "numpy": "2.2.6",
+    "timestamp_utc": "2026-08-07 19:28 UTC"
+  },
+  "settings": {
+    "cutoff_angstrom": 8.0,
+    "max_neighbours": 12,
+    "hidden_dim": 64,
+    "conv_layers": 3,
+    "batch_size": 64,
+    "epochs_assumed": 100,
+    "n_structures_benchmarked": 250
+  },
+  "measured": {
+    "graph_build_s_per_structure": 0.0006164223879750353,
+    "mean_nodes_per_structure": 16.248,
+    "mean_edges_per_structure": 194.964,
+    "forward_s_per_batch": 0.05808427574993402,
+    "est_train_step_s": 0.2352413167872328
+  },
+  "estimates": {
+    "5000": {
+      "graph_build_once_s": 3.082111939875176,
+      "epoch_s": 18.34882270940416,
+      "train_100ep_s": 1834.882270940416
+    },
+    "10000": {
+      "graph_build_once_s": 6.164223879750352,
+      "epoch_s": 36.69764541880832,
+      "train_100ep_s": 3669.764541880832
+    },
+    "30000": {
+      "graph_build_once_s": 18.492671639251057,
+      "epoch_s": 110.09293625642496,
+      "train_100ep_s": 11009.293625642496
+    },
+    "50000": {
+      "graph_build_once_s": 30.821119398751765,
+      "epoch_s": 183.72346841082881,
+      "train_100ep_s": 18372.346841082883
+    }
+  }
+}

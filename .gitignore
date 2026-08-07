@@ -216,3 +216,45 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# CatGNN-specific
+#
+# Rule: anything that can be regenerated from a manifest or a script does not
+# belong in git. GitHub rejects files over 100 MB and repos get unhappy well
+# before 1 GB; a graph cache for 30k structures will pass both marks easily.
+# ---------------------------------------------------------------------------
+
+# Downloaded datasets -- reproducible from data/raw/*/manifest.json
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/**/manifest.json
+
+# Cached graphs and tensors -- rebuilt by the data layer, large
+data/cache/*
+!data/cache/.gitkeep
+*.pt
+*.pth
+*.lmdb
+*.lmdb-lock
+*.npz
+
+# Trained models and checkpoints
+models/
+checkpoints/
+*.ckpt
+runs/
+lightning_logs/
+wandb/
+mlruns/
+
+# Materials Project / other API keys -- never commit these
+.env
+*.apikey
+mp_api_key.txt
+
+# Results: figures and small summary tables ARE committed (the README needs
+# them and they are small). Large intermediate result dumps are not.
+results/**/*.parquet
+results/**/*.h5
+results/raw/

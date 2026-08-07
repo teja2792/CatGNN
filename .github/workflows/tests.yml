@@ -1,0 +1,48 @@
+name: tests
+
+# Phase 0 deliberately depends on numpy, pandas and matplotlib only, so CI stays
+# fast and green from day one. Heavier dependencies get added to this workflow as
+# the phases that need them land.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install Phase 0 dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "numpy>=1.24" "pandas>=2.0" "matplotlib>=3.7" "pytest>=7.4"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Rebuild every figure from source data
+        run: python scripts/make_figures.py
+
+      - name: Fail if a committed figure is stale
+        run: |
+          if ! git diff --quiet -- results/figures/; then
+            echo "::error::Figures in results/figures/ differ from what the scripts produce."
+            echo "Run 'python scripts/make_figures.py' and commit the result."
+            git diff --stat -- results/figures/
+            exit 1
+          fi
+          echo "All committed figures match their source scripts."

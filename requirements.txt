@@ -1,0 +1,43 @@
+# ---------------------------------------------------------------------------
+# CatGNN dependencies
+#
+# Split by phase so you only install what you need. Phase 0 runs on numpy,
+# pandas and matplotlib alone -- deliberately, so the hardware benchmark and the
+# motivating figures work before any heavy scientific stack is present.
+#
+# Pinned to lower bounds rather than exact versions: this is a research repo, not
+# a deployed service, and over-pinning makes it fail to install six months later.
+# The exact versions used for the committed results are recorded in
+# COMPUTE_BUDGET.md.
+# ---------------------------------------------------------------------------
+
+# --- Phase 0: figures, benchmark, docs ---
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
+
+# --- Phase 1: data layer, crystal structures, graph construction ---
+pymatgen>=2024.1.1
+ase>=3.22
+mp-api>=0.41            # Materials Project client (needs a free API key)
+jarvis-tools>=2024.1.1  # JARVIS-DFT (no key needed)
+requests>=2.31          # Catalysis-Hub GraphQL
+
+# --- Phase 2: chemical descriptors and baseline models ---
+scikit-learn>=1.3
+matminer>=0.9           # Magpie descriptors + the expt_gap dataset
+xgboost>=2.0
+
+# --- Phases 3-7: the neural networks ---
+# CPU-only build. On Windows, install torch from the official index first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.1
+torch-geometric>=2.4
+
+# --- Phase 8: interactive app ---
+streamlit>=1.30
+plotly>=5.18
+umap-learn>=0.5
+
+# --- Development ---
+pytest>=7.4

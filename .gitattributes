@@ -1,0 +1,33 @@
+# Line-ending policy.
+#
+# This repo is edited on Windows but also runs in Linux CI and containers. Without
+# this file, git on Linux reports every Windows-checked-out file as entirely
+# rewritten, and diffs become useless.
+#
+# "text=auto" stores everything as LF inside the repository while still checking
+# out CRLF on Windows, which is what everyone actually wants.
+* text=auto
+
+# Explicit for the file types this repo uses, so behaviour does not depend on
+# git's content sniffing.
+*.py    text diff=python
+*.md    text
+*.txt   text
+*.yml   text
+*.yaml  text
+*.json  text
+*.csv   text
+*.cfg   text
+*.toml  text
+
+# Binary. Never touch these, and never try to diff them as text.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.pdf   binary
+*.pt    binary
+*.pth   binary
+*.ckpt  binary
+*.npz   binary
+*.lmdb  binary
