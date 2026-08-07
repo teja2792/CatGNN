@@ -281,6 +281,10 @@ def write_chunk(rows: list[dict], index: int) -> Path:
         for r in rows:
             f.write(json.dumps(r, separators=(",", ":")) + "\n")
     tmp.replace(path)  # atomic: a killed process never leaves a half-written chunk
+
+    with (DEST / ID_INDEX).open("a", encoding="utf-8") as f:
+        for r in rows:
+            f.write(r["material_id"] + "\n")
     return path
 
 
@@ -292,18 +296,36 @@ def read_chunks() -> Iterator[dict]:
                     yield json.loads(line)
 
 
+ID_INDEX = "downloaded_ids.txt"
+
+
 def existing_ids() -> set[str]:
-    """material_ids already on disk, so a resumed run does not refetch them."""
+    """material_ids already on disk, so a resumed run does not refetch them.
+
+    Reads a plain-text index if one is present -- decompressing 50+ chunks just
+    to answer "what do I already have?" wastes a minute on every restart. The
+    index is rebuilt from the chunks whenever it is missing or short, so it can
+    never drift into being authoritative-but-wrong.
+    """
+    index = DEST / ID_INDEX
     ids = set()
+    if index.exists():
+        ids = {line.strip() for line in index.read_text(encoding="utf-8").splitlines() if line.strip()}
+
+    from_chunks = set()
     for path in sorted(DEST.glob("mp_chunk_*.jsonl.gz")):
         try:
             with gzip.open(path, "rt", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
-                        ids.add(json.loads(line)["material_id"])
+                        from_chunks.add(json.loads(line)["material_id"])
         except (OSError, EOFError, json.JSONDecodeError) as exc:
             print(f"  ! {path.name} unreadable ({exc}); delete it and re-run to refetch")
-    return ids
+
+    if from_chunks != ids:
+        DEST.mkdir(parents=True, exist_ok=True)
+        index.write_text("\n".join(sorted(from_chunks)), encoding="utf-8")
+    return from_chunks
 
 
 def next_chunk_index() -> int:
@@ -569,8 +591,17 @@ def download(
             if len(buffer) >= chunk_size:
                 _flush(mpr, buffer, index)
                 written += len(buffer)
-                print(f"    chunk {index:04d}: {written:,} written "
-                      f"({i + 1:,}/{total:,} seen, {time.perf_counter() - t0:.0f}s)")
+
+                # ETA, because a 25-minute run with no feedback is a run you
+                # cannot distinguish from a hung one.
+                elapsed = time.perf_counter() - t0
+                target = len(selected) if selected is not None else total
+                remaining = max(0, target - written - len(already))
+                rate = written / elapsed if elapsed > 0 else 0
+                eta = f"~{remaining / rate / 60:.0f} min left" if rate > 0 else "estimating"
+                print(f"    chunk {index:04d}  {written:,}/{target:,} written  "
+                      f"({100 * written / max(1, target):.0f}%)  "
+                      f"{elapsed / 60:.1f} min elapsed  {eta}")
                 buffer, index = [], index + 1
 
 
