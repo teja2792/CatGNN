@@ -381,3 +381,40 @@ def test_thermo_failure_loses_the_functional_not_the_structures():
             raise RuntimeError("gateway timeout")
 
     assert mp_download.fetch_energy_types(Broken(), [row("mp-1", -1.0)]) == {}
+
+
+# ---------------------------------------------------------------------------
+# Sampling
+#
+# A real incident: the first 2,000 documents Materials Project returned were all
+# 'A' formulas (Ac, Ag, Al), 58% containing aluminium. Taking the first N is a
+# sample of the alphabet, not of the database.
+# ---------------------------------------------------------------------------
+
+def test_subset_sampling_is_seeded_and_order_independent():
+    """The same request must select the same materials, whatever order they arrive in."""
+    import random
+
+    from src.config import RANDOM_SEED
+
+    ids = [f"mp-{i}" for i in range(1000)]
+    a = set(random.Random(RANDOM_SEED).sample(sorted(ids), 100))
+    b = set(random.Random(RANDOM_SEED).sample(sorted(list(reversed(ids))), 100))
+
+    assert a == b, "sample must not depend on the order ids arrive in"
+
+
+def test_subset_sampling_spans_the_whole_id_range():
+    """A random sample must not cluster at the start, which is the bug being fixed."""
+    import random
+
+    from src.config import RANDOM_SEED
+
+    ids = sorted(f"mp-{i:05d}" for i in range(10_000))
+    picked = sorted(random.Random(RANDOM_SEED).sample(ids, 500))
+    positions = [ids.index(p) for p in picked]
+
+    assert max(positions) > 9_000, "sample never reaches the end of the id range"
+    assert min(positions) < 1_000
+    # First-N would put every position below 500.
+    assert sum(1 for p in positions if p < 500) < 100

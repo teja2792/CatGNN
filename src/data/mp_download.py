@@ -37,6 +37,7 @@ from ..config import (
     RAW,
     MAX_SITES,
     MIN_SITES,
+    RANDOM_SEED,
     get_mp_api_key,
     key_fingerprint,
 )
@@ -497,10 +498,48 @@ def download(
 
         docs = _search_tolerantly(mpr, search_kwargs)
         total = len(docs)
-        print(f"  {total:,} materials match. Downloading...\n")
+        print(f"  {total:,} materials match.")
+
+        # ------------------------------------------------------------------
+        # If we are taking a subset, it MUST be a random one.
+        #
+        # Materials Project returns documents in material_id order, which is
+        # strongly correlated with chemistry. Taking the first N is therefore
+        # not a sample of Materials Project -- it is a sample of the alphabet.
+        # The first 2,000 documents were *every single one* an A formula:
+        # 58% contained Al, 34% Ag, and the whole periodic table past Al was
+        # absent. A model trained on that is an aluminium model wearing a
+        # general-purpose label, and every summary statistic computed from it
+        # (metal fraction, polymorph rate, functional mix) is wrong in a way
+        # nothing downstream would flag.
+        #
+        # Sampling is seeded and drawn from *sorted* ids, so it does not depend
+        # on API response order and a resumed run picks the same materials.
+        # ------------------------------------------------------------------
+        selected: set[str] | None = None
+        if max_materials and max_materials < total:
+            import random
+
+            all_ids = sorted(str(getattr(d, "material_id", "")) for d in docs)
+            selected = set(random.Random(RANDOM_SEED).sample(all_ids, max_materials))
+            query["sampling"] = {
+                "mode": "random_subset",
+                "n_requested": max_materials,
+                "n_available": total,
+                "seed": RANDOM_SEED,
+                "note": "drawn from sorted material_ids; independent of API order",
+            }
+            print(f"  taking a random {max_materials:,} of them (seed {RANDOM_SEED}).")
+            print("  NOT the first N -- MP returns ids in an order correlated with chemistry.")
+        else:
+            query["sampling"] = {"mode": "complete", "n_available": total}
+
+        print("  Downloading...\n")
 
         for i, doc in enumerate(docs):
             mid = str(getattr(doc, "material_id", ""))
+            if selected is not None and mid not in selected:
+                continue
             if mid in already:
                 skipped_dupe += 1
                 continue
@@ -534,9 +573,6 @@ def download(
                       f"({i + 1:,}/{total:,} seen, {time.perf_counter() - t0:.0f}s)")
                 buffer, index = [], index + 1
 
-            if max_materials and written + len(buffer) >= max_materials:
-                print(f"    reached --max-materials {max_materials:,}, stopping")
-                break
 
         if buffer:
             _flush(mpr, buffer, index)

@@ -1,0 +1,40 @@
+{
+  "n_materials": 2000,
+  "total_atoms": 23937,
+  "sites": {
+    "min": 1,
+    "median": 10,
+    "mean": 11.9685,
+    "max": 30
+  },
+  "energy_type_counts": {
+    "r2SCAN": 605,
+    "GGA": 1220,
+    "GGA+U": 175
+  },
+  "formulas_spanning_multiple_functionals": 104,
+  "label_coverage": {
+    "band_gap": 2000,
+    "formation_energy_per_atom": 2000,
+    "energy_above_hull": 2000
+  },
+  "unique_formulas": 1328,
+  "formulas_with_multiple_entries": 312,
+  "malformed_structures": 0,
+  "duplicate_material_ids": 0,
+  "distinct_elements": 71,
+  "most_common_element": [
+    "Al",
+    1158
+  ],
+  "sample_skew_warnings": [
+    "only 1 distinct first letters",
+    "100.0% of formulas start with 'A'",
+    "Al appears in 57.9% of materials"
+  ],
+  "functional_resolution": {
+    "matched_formation_energy": 1910,
+    "ambiguous_energy_match": 90
+  },
+  "materials_with_multiple_functionals": 668
+}

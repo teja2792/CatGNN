@@ -112,6 +112,72 @@ def main() -> None:
             span = f"gap {min(g):.2f}..{max(g):.2f} eV" if len(g) > 1 else ""
             print(f"    {f:<16} {c:>4} entries   {span}")
 
+    # --- is this a sample of Materials Project, or a sample of the alphabet? --
+    #
+    # Added after a real incident. The first 2,000 documents Materials Project
+    # returned were *every single one* an A formula (Ac, Ag, Al): 58% contained
+    # aluminium, and the entire periodic table past Al was missing. Nothing in
+    # the pipeline complained. Every statistic below it would have been wrong,
+    # and a model trained on it would have been an aluminium model with a
+    # general-purpose label.
+    print("\nSample representativeness")
+    first_letters = Counter(r["formula_pretty"][0] for r in rows if r.get("formula_pretty"))
+    dominant_letter, dom_n = first_letters.most_common(1)[0]
+    elements = Counter()
+    for r in rows:
+        elements.update(r.get("elements") or [])
+    top_el, top_n = elements.most_common(1)[0]
+
+    print(f"  distinct elements present   {len(elements)} of ~89 in Materials Project")
+    print(f"  most common element         {top_el} in {top_n:,} materials ({pct(top_n, n)})")
+    print(f"  formulas starting '{dominant_letter}'      {dom_n:,} ({pct(dom_n, n)})")
+
+    skewed = []
+    if len(first_letters) < 8:
+        skewed.append(f"only {len(first_letters)} distinct first letters")
+    if dom_n / n > 0.40:
+        skewed.append(f"{pct(dom_n, n).strip()} of formulas start with '{dominant_letter}'")
+    if top_n / n > 0.35:
+        skewed.append(f"{top_el} appears in {pct(top_n, n).strip()} of materials")
+    if len(elements) < 50:
+        skewed.append(f"only {len(elements)} elements represented")
+
+    if skewed:
+        print("\n  *** THIS IS NOT A RANDOM SAMPLE ***")
+        for s in skewed:
+            print(f"    - {s}")
+        print("  Materials Project returns ids in an order correlated with chemistry,")
+        print("  so taking the first N gives a slice of the alphabet, not of the database.")
+        print("  Delete data/raw/materials_project/ and re-download; --max-materials now")
+        print("  draws a seeded random subset.")
+    else:
+        print("  -> looks broadly representative")
+
+    # --- how confident are we in the functional labels? --------------------
+    res = Counter(r.get("energy_type_resolution") or "not_recorded" for r in rows)
+    if res and set(res) != {"not_recorded"}:
+        print("\nHow the DFT functional was determined")
+        for k, v in res.most_common():
+            print(f"  {k:<28} {v:>8,}   {pct(v, n)}")
+        weak = res.get("fallback_preference", 0) + res.get("not_found", 0)
+        if weak:
+            print(f"  -> {weak:,} materials have a guessed functional. Consider excluding")
+            print("     them from any analysis that groups by functional.")
+
+    amb = sum(1 for r in rows if r.get("energy_type_ambiguous"))
+    print(f"\n  materials computed under >1 functional: {amb:,} ({pct(amb, n)})")
+
+    # --- metals vs non-metals ---------------------------------------------
+    if gaps.size:
+        nm = gaps[gaps > 1e-6]
+        print("\nBand gap, metals excluded")
+        print(f"  non-metals {nm.size:,} ({pct(nm.size, gaps.size)})   "
+              f"range {nm.min():.3f} .. {nm.max():.3f}   median {np.median(nm):.3f}")
+        print(f"  predicting 0.0 for everything would score MAE {np.abs(gaps).mean():.3f} eV "
+              f"on all materials,")
+        print(f"  but {np.abs(nm - np.median(nm)).mean():.3f} eV on non-metals alone.")
+        print("  -> report both, or a model that only learns 'is it a metal' will look good.")
+
     # --- integrity ---------------------------------------------------------
     print("\nIntegrity checks")
     problems = []
@@ -147,6 +213,11 @@ def main() -> None:
         "formulas_with_multiple_entries": len(multi),
         "malformed_structures": len(problems),
         "duplicate_material_ids": len(dupes),
+        "distinct_elements": len(elements),
+        "most_common_element": [top_el, top_n],
+        "sample_skew_warnings": skewed,
+        "functional_resolution": dict(res),
+        "materials_with_multiple_functionals": amb,
     }
     RESULTS.mkdir(parents=True, exist_ok=True)
     out = RESULTS / "mp_dataset_report.json"
