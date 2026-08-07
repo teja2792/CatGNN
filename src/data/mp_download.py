@@ -68,6 +68,16 @@ SUMMARY_FIELDS = [
 
 CHUNK_SIZE = 2000  # materials per output file
 
+# Materials fetched per API round trip. This is the number that decides whether
+# the download fits in RAM: mp-api materialises every document a search returns
+# before handing it back, so asking for 103,000 structures at once needs all
+# 103,000 in memory simultaneously. That died with a MemoryError at ~67,000 on a
+# 16 GB laptop. Fetching by explicit material_ids in batches keeps the working
+# set flat regardless of how big the dataset is.
+ID_BATCH = 1000
+
+ID_LIST_FILE = "all_material_ids.json"
+
 
 # ---------------------------------------------------------------------------
 # Structure compaction
@@ -482,6 +492,56 @@ def _search_tolerantly(mpr, kwargs: dict):
     return mpr.materials.summary.search(**kwargs)
 
 
+def fetch_all_ids(mpr, min_sites, max_sites, exclude_theoretical) -> list[str]:
+    """Get just the material_ids matching the filters, and cache them.
+
+    Deliberately split from fetching the structures. Asking for ids alone returns
+    a few megabytes of strings instead of gigabytes of crystals, so it completes
+    in one pass without memory pressure, and it gives us an explicit worklist to
+    page through afterwards.
+
+    The list is cached, which also removes the most annoying part of resuming:
+    the enumeration step took ~7 minutes and used to run again on every restart.
+    The cache is keyed on the query, so changing a filter re-enumerates rather
+    than silently reusing the wrong worklist.
+    """
+    cache = DEST / ID_LIST_FILE
+    query_key = {
+        "min_sites": min_sites,
+        "max_sites": max_sites,
+        "exclude_theoretical": exclude_theoretical,
+    }
+
+    if cache.exists():
+        try:
+            blob = json.loads(cache.read_text(encoding="utf-8"))
+            if blob.get("query") == query_key:
+                print(f"  reusing cached id list ({len(blob['ids']):,} materials)")
+                return blob["ids"]
+            print("  cached id list was built for a different query; re-enumerating")
+        except (json.JSONDecodeError, KeyError):
+            print("  cached id list unreadable; re-enumerating")
+
+    print("  enumerating matching materials (ids only, no structures)...")
+    kwargs = dict(
+        num_sites=(min_sites, max_sites),
+        fields=["material_id"],
+        deprecated=False,
+    )
+    if exclude_theoretical:
+        kwargs["theoretical"] = False
+
+    docs = _search_tolerantly(mpr, kwargs)
+    ids = sorted(str(getattr(d, "material_id", "")) for d in docs)
+    ids = [i for i in ids if i]
+    del docs
+
+    DEST.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({"query": query_key, "ids": ids}), encoding="utf-8")
+    print(f"  {len(ids):,} materials match; id list cached")
+    return ids
+
+
 def download(
     api_key: str,
     max_materials: int | None = None,
@@ -490,60 +550,52 @@ def download(
     exclude_theoretical: bool = False,
     chunk_size: int = CHUNK_SIZE,
 ) -> dict:
+    """Download structures in batches, keeping memory flat.
+
+    Two phases, for a reason learned the hard way:
+
+    1. Fetch the matching **material_ids only**. Cheap, and it gives an explicit
+       worklist.
+    2. Fetch the full documents in batches of ID_BATCH, writing each batch to
+       disk before requesting the next.
+
+    The obvious one-shot version -- ask the API for everything matching the
+    filters -- dies with a MemoryError partway through, because mp-api builds the
+    entire result list before returning it. Paging by id means peak memory
+    depends on the batch size, not on the size of the dataset, so this works the
+    same for 2,000 materials or 200,000.
+    """
     from mp_api.client import MPRester
 
-    query = {
-        "num_sites": [min_sites, max_sites],
-        "exclude_theoretical": exclude_theoretical,
-        "max_materials": max_materials,
-        "deprecated": False,
-    }
-
+    t0 = time.perf_counter()
     already = existing_ids()
     if already:
         print(f"  resuming: {len(already):,} materials already on disk\n")
 
-    t0 = time.perf_counter()
-    buffer: list[dict] = []
+    written = skipped_disordered = skipped_filtered = 0
     index = next_chunk_index()
-    written = skipped_disordered = skipped_dupe = skipped_filtered = 0
+    buffer: list[dict] = []
 
-    print(f"  querying materials with {min_sites} <= nsites <= {max_sites} ...")
     with MPRester(api_key) as mpr:
-        search_kwargs = dict(
-            num_sites=(min_sites, max_sites),
-            fields=SUMMARY_FIELDS,
-            deprecated=False,
-        )
-        if exclude_theoretical:
-            search_kwargs["theoretical"] = False
+        ids = fetch_all_ids(mpr, min_sites, max_sites, exclude_theoretical)
+        total = len(ids)
 
-        docs = _search_tolerantly(mpr, search_kwargs)
-        total = len(docs)
-        print(f"  {total:,} materials match.")
+        query = {
+            "num_sites": [min_sites, max_sites],
+            "exclude_theoretical": exclude_theoretical,
+            "deprecated": False,
+            "max_materials": max_materials,
+        }
 
-        # ------------------------------------------------------------------
-        # If we are taking a subset, it MUST be a random one.
-        #
-        # Materials Project returns documents in material_id order, which is
-        # strongly correlated with chemistry. Taking the first N is therefore
-        # not a sample of Materials Project -- it is a sample of the alphabet.
-        # The first 2,000 documents were *every single one* an A formula:
-        # 58% contained Al, 34% Ag, and the whole periodic table past Al was
-        # absent. A model trained on that is an aluminium model wearing a
-        # general-purpose label, and every summary statistic computed from it
-        # (metal fraction, polymorph rate, functional mix) is wrong in a way
-        # nothing downstream would flag.
-        #
-        # Sampling is seeded and drawn from *sorted* ids, so it does not depend
-        # on API response order and a resumed run picks the same materials.
-        # ------------------------------------------------------------------
-        selected: set[str] | None = None
+        # A subset must be a RANDOM subset. Materials Project returns ids in an
+        # order correlated with chemistry, so the first N is a slice of the
+        # alphabet: an early trial pull of "the first 2,000" was 100% A formulas
+        # and 58% aluminium. Sampling from sorted ids with a fixed seed is
+        # reproducible and independent of API ordering.
         if max_materials and max_materials < total:
             import random
 
-            all_ids = sorted(str(getattr(d, "material_id", "")) for d in docs)
-            selected = set(random.Random(RANDOM_SEED).sample(all_ids, max_materials))
+            ids = sorted(random.Random(RANDOM_SEED).sample(ids, max_materials))
             query["sampling"] = {
                 "mode": "random_subset",
                 "n_requested": max_materials,
@@ -551,79 +603,77 @@ def download(
                 "seed": RANDOM_SEED,
                 "note": "drawn from sorted material_ids; independent of API order",
             }
-            print(f"  taking a random {max_materials:,} of them (seed {RANDOM_SEED}).")
-            print("  NOT the first N -- MP returns ids in an order correlated with chemistry.")
+            print(f"  taking a random {max_materials:,} of {total:,} (seed {RANDOM_SEED})")
         else:
             query["sampling"] = {"mode": "complete", "n_available": total}
 
-        print("  Downloading...\n")
+        todo = [i for i in ids if i not in already]
+        print(f"  {len(todo):,} to fetch, {len(already):,} already present\n")
 
-        for i, doc in enumerate(docs):
-            mid = str(getattr(doc, "material_id", ""))
-            if selected is not None and mid not in selected:
-                continue
-            if mid in already:
-                skipped_dupe += 1
-                continue
-
-            # Enforce the filters locally as well as server-side. If a filter was
-            # dropped by _search_tolerantly, this is what still makes the dataset
-            # match its manifest -- a manifest that describes a filter nobody
-            # applied is worse than no manifest.
-            ns = getattr(doc, "nsites", None)
-            if ns is not None and not (min_sites <= ns <= max_sites):
-                skipped_filtered += 1
-                continue
-            if getattr(doc, "deprecated", False):
-                skipped_filtered += 1
-                continue
-            if exclude_theoretical and getattr(doc, "theoretical", False):
-                skipped_filtered += 1
+        for b in range(0, len(todo), ID_BATCH):
+            batch = todo[b : b + ID_BATCH]
+            try:
+                docs = mpr.materials.summary.search(
+                    material_ids=batch, fields=SUMMARY_FIELDS
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"    ! batch {b // ID_BATCH} failed ({exc}); continuing")
                 continue
 
-            row = flatten_doc(doc)
-            if row is None:
-                skipped_disordered += 1
-                continue
+            for doc in docs:
+                ns = getattr(doc, "nsites", None)
+                if ns is not None and not (min_sites <= ns <= max_sites):
+                    skipped_filtered += 1
+                    continue
+                if getattr(doc, "deprecated", False):
+                    skipped_filtered += 1
+                    continue
+                if exclude_theoretical and getattr(doc, "theoretical", False):
+                    skipped_filtered += 1
+                    continue
 
-            buffer.append(row)
+                r = flatten_doc(doc)
+                if r is None:
+                    skipped_disordered += 1
+                    continue
+                buffer.append(r)
 
-            if len(buffer) >= chunk_size:
-                _flush(mpr, buffer, index)
-                written += len(buffer)
+            del docs  # release the batch before requesting the next one
 
-                # ETA, because a 25-minute run with no feedback is a run you
-                # cannot distinguish from a hung one.
-                elapsed = time.perf_counter() - t0
-                target = len(selected) if selected is not None else total
-                remaining = max(0, target - written - len(already))
-                rate = written / elapsed if elapsed > 0 else 0
-                eta = f"~{remaining / rate / 60:.0f} min left" if rate > 0 else "estimating"
-                print(f"    chunk {index:04d}  {written:,}/{target:,} written  "
-                      f"({100 * written / max(1, target):.0f}%)  "
-                      f"{elapsed / 60:.1f} min elapsed  {eta}")
-                buffer, index = [], index + 1
-
+            while len(buffer) >= chunk_size:
+                _flush(mpr, buffer[:chunk_size], index)
+                written += chunk_size
+                buffer = buffer[chunk_size:]
+                index += 1
+                _progress(written, len(todo), t0, index - 1)
 
         if buffer:
             _flush(mpr, buffer, index)
             written += len(buffer)
-            print(f"    chunk {index:04d}: {written:,} written (final)")
+            _progress(written, len(todo), t0, index)
 
     elapsed = time.perf_counter() - t0
     manifest = write_manifest(written + len(already), query, api_key, elapsed)
 
-    summary = {
+    return {
         "written_this_run": written,
         "already_present": len(already),
         "total_on_disk": written + len(already),
         "skipped_disordered": skipped_disordered,
         "skipped_filtered_locally": skipped_filtered,
-        "skipped_already_present": skipped_dupe,
         "seconds": round(elapsed, 1),
         "manifest": str(manifest),
     }
-    return summary
+
+
+def _progress(written: int, target: int, t0: float, index: int) -> None:
+    elapsed = time.perf_counter() - t0
+    rate = written / elapsed if elapsed > 0 else 0
+    remaining = max(0, target - written)
+    eta = f"~{remaining / rate / 60:.0f} min left" if rate > 0 else "estimating"
+    print(f"    chunk {index:04d}  {written:,}/{target:,} "
+          f"({100 * written / max(1, target):.0f}%)  "
+          f"{elapsed / 60:.1f} min elapsed  {eta}")
 
 
 def _flush(mpr, buffer: list[dict], index: int) -> None:
