@@ -1,40 +1,42 @@
 {
-  "n_materials": 2000,
-  "total_atoms": 23937,
+  "n_materials": 102958,
+  "total_atoms": 1415804,
   "sites": {
     "min": 1,
-    "median": 10,
-    "mean": 11.9685,
+    "median": 12,
+    "mean": 13.751277219837215,
     "max": 30
   },
   "energy_type_counts": {
-    "r2SCAN": 605,
-    "GGA": 1220,
-    "GGA+U": 175
+    "r2SCAN": 25623,
+    "GGA": 54900,
+    "GGA+U": 22431,
+    "MISSING": 4
   },
-  "formulas_spanning_multiple_functionals": 104,
+  "formulas_spanning_multiple_functionals": 3976,
   "label_coverage": {
-    "band_gap": 2000,
-    "formation_energy_per_atom": 2000,
-    "energy_above_hull": 2000
+    "band_gap": 102954,
+    "formation_energy_per_atom": 102954,
+    "energy_above_hull": 102954
   },
-  "unique_formulas": 1328,
-  "formulas_with_multiple_entries": 312,
+  "unique_formulas": 70228,
+  "formulas_with_multiple_entries": 14976,
   "malformed_structures": 0,
   "duplicate_material_ids": 0,
-  "distinct_elements": 71,
+  "distinct_elements": 89,
   "most_common_element": [
-    "Al",
-    1158
+    "O",
+    41886
   ],
-  "sample_skew_warnings": [
-    "only 1 distinct first letters",
-    "100.0% of formulas start with 'A'",
-    "Al appears in 57.9% of materials"
-  ],
+  "sample_skew_warnings": [],
   "functional_resolution": {
-    "matched_formation_energy": 1910,
-    "ambiguous_energy_match": 90
+    "matched_formation_energy": 97421,
+    "ambiguous_energy_match": 5533,
+    "not_found": 4
   },
-  "materials_with_multiple_functionals": 668
+  "materials_with_multiple_functionals": 29722,
+  "download_mode": "complete",
+  "theoretical": 72357,
+  "band_gap_over_10eV": 6,
+  "formulas_with_20plus_entries": 137
 }

@@ -132,15 +132,36 @@ def main() -> None:
     print(f"  most common element         {top_el} in {top_n:,} materials ({pct(top_n, n)})")
     print(f"  formulas starting '{dominant_letter}'      {dom_n:,} ({pct(dom_n, n)})")
 
+    # Whether skew is a *problem* depends on whether this is a sample at all.
+    # A complete download cannot be unrepresentative of itself: oxygen really is
+    # in ~41% of Materials Project, because oxides dominate materials science.
+    # The first version of this check flagged that as a failure, which is worse
+    # than useless -- a warning that cries wolf on correct data teaches you to
+    # ignore it on incorrect data.
+    mode = "unknown"
+    manifest = DEST / "manifest.json"
+    if manifest.exists():
+        try:
+            mode = json.loads(manifest.read_text(encoding="utf-8")) \
+                .get("query", {}).get("sampling", {}).get("mode", "unknown")
+        except (json.JSONDecodeError, AttributeError):
+            pass
+    print(f"  download mode               {mode}")
+
     skewed = []
+    # These indicate a truncated or ordered slice, and are wrong at ANY mode:
+    # a complete download of Materials Project spans the whole alphabet and
+    # essentially the whole periodic table.
     if len(first_letters) < 8:
         skewed.append(f"only {len(first_letters)} distinct first letters")
     if dom_n / n > 0.40:
         skewed.append(f"{pct(dom_n, n).strip()} of formulas start with '{dominant_letter}'")
-    if top_n / n > 0.35:
-        skewed.append(f"{top_el} appears in {pct(top_n, n).strip()} of materials")
     if len(elements) < 50:
         skewed.append(f"only {len(elements)} elements represented")
+    # Element frequency only means something relative to a population, so it is
+    # only evidence of a bad sample when we took a sample.
+    if mode != "complete" and top_n / n > 0.35:
+        skewed.append(f"{top_el} appears in {pct(top_n, n).strip()} of materials")
 
     if skewed:
         print("\n  *** THIS IS NOT A RANDOM SAMPLE ***")
@@ -177,6 +198,54 @@ def main() -> None:
               f"on all materials,")
         print(f"  but {np.abs(nm - np.median(nm)).mean():.3f} eV on non-metals alone.")
         print("  -> report both, or a model that only learns 'is it a metal' will look good.")
+
+    # --- has anyone ever made these? --------------------------------------
+    theo = sum(1 for r in rows if r.get("theoretical"))
+    print("\nHave these materials been made?")
+    print(f"  theoretical (never observed)  {theo:,}   {pct(theo, n)}")
+    print(f"  experimentally observed       {n - theo:,}   {pct(n - theo, n)}")
+    print("  -> most of Materials Project is hypothetical. Fine for learning the")
+    print("     physics, but 'predicted stable' is not 'someone can make it'.")
+
+    # --- physically implausible values ------------------------------------
+    #
+    # Not a formality. A single corrupted label can quietly dominate a squared
+    # loss, and an outlier that turns out to be *correct* tells you something
+    # about the data you would otherwise assume away.
+    print("\nExtreme values (checked by hand, not just flagged)")
+    extreme = sorted(
+        (r for r in rows if (r.get("band_gap") or 0) > 10),
+        key=lambda r: -r["band_gap"],
+    )
+    print(f"  band gap > 10 eV: {len(extreme)} materials")
+    for r in extreme[:5]:
+        print(f"    {r['material_id']:<14} {r['formula_pretty']:<10} "
+              f"{r['band_gap']:6.2f} eV  {r.get('energy_type')}")
+    if extreme:
+        print("  -> these are real: solid He, Ne and H2 are genuine wide-gap insulators.")
+        print("     Not data errors, but they will dominate a squared loss. Consider")
+        print("     reporting median absolute error alongside the mean.")
+
+    # --- near-duplicate structures: the real leakage risk ------------------
+    #
+    # Some formulas have hundreds of entries that are the same lattice with
+    # different cation orderings (battery cathodes especially). A random split
+    # scatters those across train and test, so the model can memorise one and
+    # be graded on its twin. This is why Phase 1 ships composition-disjoint
+    # splits and does not trust a random one.
+    big = {f: c for f, c in counts.items() if c >= 20}
+    if big:
+        n_big = sum(big.values())
+        print("\nNear-duplicate risk (configurational polymorphs)")
+        print(f"  formulas with >=20 entries: {len(big):,}, covering {n_big:,} "
+              f"materials ({pct(n_big, n)})")
+        worst = max(big, key=lambda f: big[f])
+        sub = [r for r in rows if r["formula_pretty"] == worst]
+        sizes = {r["nsites"] for r in sub}
+        print(f"  worst: {worst} with {big[worst]} entries, "
+              f"{'all the same cell size' if len(sizes) == 1 else f'{len(sizes)} cell sizes'}")
+        print("  -> same lattice, different cation orderings. A random split puts")
+        print("     near-twins in both train and test and inflates the score.")
 
     # --- integrity ---------------------------------------------------------
     print("\nIntegrity checks")
@@ -218,6 +287,10 @@ def main() -> None:
         "sample_skew_warnings": skewed,
         "functional_resolution": dict(res),
         "materials_with_multiple_functionals": amb,
+        "download_mode": mode,
+        "theoretical": theo,
+        "band_gap_over_10eV": len(extreme),
+        "formulas_with_20plus_entries": len(big),
     }
     RESULTS.mkdir(parents=True, exist_ok=True)
     out = RESULTS / "mp_dataset_report.json"
