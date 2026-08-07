@@ -252,12 +252,13 @@ def test_dotenv_is_gitignored():
 
 
 # ---------------------------------------------------------------------------
-# Functional (energy_type) handling
+# Functional (energy_type) resolution
 #
-# Materials Project returns MORE THAN ONE thermo record per material -- the probe
-# showed 6 records for 3 materials. An earlier version kept whichever arrived
-# first, making the recorded functional depend on network ordering. These tests
-# pin down the fix.
+# Materials Project returns ~2.2 thermo records per material. Two earlier
+# approaches were wrong: keeping the first record (network-order dependent), and
+# a fixed GGA-over-r2SCAN preference (refuted by diagnose_functional.py, which
+# found the summary agreed with r2SCAN for 14% of TiO2 entries). These tests pin
+# down the evidence-based replacement.
 # ---------------------------------------------------------------------------
 
 class FakeMPR:
@@ -265,75 +266,112 @@ class FakeMPR:
 
     def __init__(self, records):
         self._records = records
-        self.materials = types.SimpleNamespace(thermo=types.SimpleNamespace(search=self._search))
+        self.materials = types.SimpleNamespace(
+            thermo=types.SimpleNamespace(search=self._search))
 
     def _search(self, material_ids=None, fields=None):
-        return [
-            types.SimpleNamespace(**r)
-            for r in self._records
-            if r["material_id"] in set(material_ids or [])
-        ]
+        wanted = set(material_ids or [])
+        return [types.SimpleNamespace(**r) for r in self._records
+                if r["material_id"] in wanted]
 
 
-def test_all_functionals_are_kept_not_just_the_first():
+def row(mid, fe):
+    return {"material_id": mid, "formation_energy_per_atom": fe}
+
+
+def test_functional_identified_by_matching_formation_energy():
+    """The decisive evidence: which thermo record reproduces the summary value.
+
+    Modelled on the real mp-775938, where the summary agrees with the r2SCAN
+    record and NOT the GGA one -- the case a fixed GGA-first preference got wrong.
+    """
     mpr = FakeMPR([
-        {"material_id": "mp-1", "energy_type": "r2SCAN", "thermo_type": "R2SCAN"},
-        {"material_id": "mp-1", "energy_type": "GGA", "thermo_type": "GGA_GGA+U"},
+        {"material_id": "mp-775938", "energy_type": "r2SCAN",
+         "thermo_type": "r2SCAN", "formation_energy_per_atom": -3.3018504},
+        {"material_id": "mp-775938", "energy_type": "r2SCAN",
+         "thermo_type": "GGA_GGA+U_R2SCAN", "formation_energy_per_atom": -3.4958085},
+        {"material_id": "mp-775938", "energy_type": "GGA",
+         "thermo_type": "GGA_GGA+U", "formation_energy_per_atom": -3.4623513},
     ])
-    info = mp_download.fetch_energy_types(mpr, ["mp-1"])["mp-1"]
+    info = mpr and mp_download.fetch_energy_types(mpr, [row("mp-775938", -3.4958085)])["mp-775938"]
 
+    assert info["energy_type"] == "r2SCAN", "a GGA-first preference would fail here"
+    assert info["energy_type_resolution"] == "matched_formation_energy"
     assert info["energy_types_available"] == ["GGA", "r2SCAN"]
     assert info["energy_type_ambiguous"] is True
 
 
-def test_primary_functional_does_not_depend_on_api_ordering():
-    """The bug this replaced: whichever record arrived first won.
+def test_gga_material_also_resolves_by_evidence():
+    """Modelled on the real mp-2420244: both records GGA, energies identical."""
+    mpr = FakeMPR([
+        {"material_id": "mp-2420244", "energy_type": "GGA",
+         "thermo_type": "GGA_GGA+U_R2SCAN", "formation_energy_per_atom": -3.4915613},
+        {"material_id": "mp-2420244", "energy_type": "GGA",
+         "thermo_type": "GGA_GGA+U", "formation_energy_per_atom": -3.4915613},
+    ])
+    info = mp_download.fetch_energy_types(mpr, [row("mp-2420244", -3.4915613)])["mp-2420244"]
 
-    Same two records, opposite order, must give the same answer -- otherwise the
-    dataset's labels are a function of network timing.
-    """
-    a = [
-        {"material_id": "mp-1", "energy_type": "r2SCAN", "thermo_type": "R2SCAN"},
-        {"material_id": "mp-1", "energy_type": "GGA", "thermo_type": "GGA_GGA+U"},
-    ]
-    first = mp_download.fetch_energy_types(FakeMPR(a), ["mp-1"])["mp-1"]
-    second = mp_download.fetch_energy_types(FakeMPR(list(reversed(a))), ["mp-1"])["mp-1"]
-
-    assert first == second
-    assert first["energy_type"] == "GGA"  # per FUNCTIONAL_PREFERENCE
-
-
-def test_single_functional_is_not_flagged_ambiguous():
-    mpr = FakeMPR([{"material_id": "mp-2", "energy_type": "GGA+U", "thermo_type": "GGA_GGA+U"}])
-    info = mp_download.fetch_energy_types(mpr, ["mp-2"])["mp-2"]
-
-    assert info["energy_type"] == "GGA+U"
+    assert info["energy_type"] == "GGA"
     assert info["energy_type_ambiguous"] is False
 
 
-def test_functional_preference_order_is_respected():
+def test_falls_back_to_mixed_thermo_type_when_no_summary_energy():
+    """Formation energy is missing for some entries; the blessed record still resolves them."""
     mpr = FakeMPR([
-        {"material_id": "mp-3", "energy_type": "r2SCAN", "thermo_type": "R2SCAN"},
-        {"material_id": "mp-3", "energy_type": "GGA+U", "thermo_type": "GGA_GGA+U"},
-        {"material_id": "mp-3", "energy_type": "GGA", "thermo_type": "GGA_GGA+U"},
+        {"material_id": "mp-1", "energy_type": "r2SCAN",
+         "thermo_type": "GGA_GGA+U_R2SCAN", "formation_energy_per_atom": -1.0},
+        {"material_id": "mp-1", "energy_type": "GGA",
+         "thermo_type": "GGA_GGA+U", "formation_energy_per_atom": -2.0},
     ])
-    assert mp_download.fetch_energy_types(mpr, ["mp-3"])["mp-3"]["energy_type"] == "GGA+U"
+    info = mp_download.fetch_energy_types(mpr, [row("mp-1", None)])["mp-1"]
+
+    assert info["energy_type"] == "r2SCAN"
+    assert info["energy_type_resolution"] == "mixed_thermo_type"
 
 
-def test_unknown_functional_sorts_last_but_is_kept():
-    """A functional we have never seen must not silently outrank a known one."""
+def test_last_resort_preference_is_recorded_not_hidden():
+    """When nothing resolves it, the row must say so, so it can be excluded."""
     mpr = FakeMPR([
-        {"material_id": "mp-4", "energy_type": "SOMETHING_NEW", "thermo_type": "?"},
-        {"material_id": "mp-4", "energy_type": "GGA", "thermo_type": "GGA_GGA+U"},
+        {"material_id": "mp-9", "energy_type": "r2SCAN",
+         "thermo_type": "r2SCAN", "formation_energy_per_atom": None},
+        {"material_id": "mp-9", "energy_type": "GGA",
+         "thermo_type": "GGA_GGA+U", "formation_energy_per_atom": None},
     ])
-    info = mp_download.fetch_energy_types(mpr, ["mp-4"])["mp-4"]
+    info = mp_download.fetch_energy_types(mpr, [row("mp-9", None)])["mp-9"]
+
+    assert info["energy_type_resolution"] == "fallback_preference"
+    assert info["energy_type"] == "GGA"
+
+
+def test_result_does_not_depend_on_api_ordering():
+    """The property the original code lacked entirely."""
+    recs = [
+        {"material_id": "mp-1", "energy_type": "r2SCAN",
+         "thermo_type": "GGA_GGA+U_R2SCAN", "formation_energy_per_atom": -3.5},
+        {"material_id": "mp-1", "energy_type": "GGA",
+         "thermo_type": "GGA_GGA+U", "formation_energy_per_atom": -3.4},
+    ]
+    a = mp_download.fetch_energy_types(FakeMPR(recs), [row("mp-1", -3.5)])["mp-1"]
+    b = mp_download.fetch_energy_types(FakeMPR(list(reversed(recs))), [row("mp-1", -3.5)])["mp-1"]
+
+    assert a == b
+    assert a["energy_type"] == "r2SCAN"
+
+
+def test_unknown_functional_is_kept_not_dropped():
+    mpr = FakeMPR([
+        {"material_id": "mp-4", "energy_type": "SOMETHING_NEW",
+         "thermo_type": "?", "formation_energy_per_atom": None},
+        {"material_id": "mp-4", "energy_type": "GGA",
+         "thermo_type": "GGA_GGA+U", "formation_energy_per_atom": None},
+    ])
+    info = mp_download.fetch_energy_types(mpr, [row("mp-4", None)])["mp-4"]
 
     assert info["energy_type"] == "GGA"
     assert "SOMETHING_NEW" in info["energy_types_available"]
 
 
-def test_thermo_failure_does_not_abort_the_download():
-    """A dropped thermo call must lose the functional, not the structures."""
+def test_thermo_failure_loses_the_functional_not_the_structures():
     class Broken:
         def __init__(self):
             self.materials = types.SimpleNamespace(
@@ -342,4 +380,4 @@ def test_thermo_failure_does_not_abort_the_download():
         def _boom(self, **kwargs):
             raise RuntimeError("gateway timeout")
 
-    assert mp_download.fetch_energy_types(Broken(), ["mp-1"]) == {}
+    assert mp_download.fetch_energy_types(Broken(), [row("mp-1", -1.0)]) == {}

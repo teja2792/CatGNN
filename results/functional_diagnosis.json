@@ -1,0 +1,20 @@
+{
+  "formula": "TiO2",
+  "n_materials": 25,
+  "n_thermo_records": 54,
+  "functional_combinations": {
+    "GGA + r2SCAN": 4,
+    "GGA": 19,
+    "r2SCAN": 2
+  },
+  "thermo_types": {
+    "r2SCAN": 6,
+    "GGA_GGA+U_R2SCAN": 25,
+    "GGA_GGA+U": 23
+  },
+  "materials_with_multiple_functionals": 4,
+  "summary_agrees_with": {
+    "GGA": 38,
+    "r2SCAN": 6
+  }
+}

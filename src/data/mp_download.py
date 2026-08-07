@@ -134,14 +134,17 @@ def flatten_doc(doc: Any) -> dict | None:
 # Functional (energy_type) lookup
 # ---------------------------------------------------------------------------
 
-# Preference used to pick a single "primary" functional when a material has more
-# than one. Materials Project's summary band_gap and formation energy come from
-# the GGA/GGA+U workflow for the great majority of entries, with r2SCAN carried
-# alongside as a separate thermo record. This ordering encodes that, and is
-# deliberately a named constant rather than a hidden sort so it can be challenged.
-#
-# Verify with: python scripts/diagnose_functional.py
+# Materials Project's "blessed" mixed scheme. Empirically -- see
+# results/functional_diagnosis.json -- there is exactly one thermo record with this
+# thermo_type per material, and it is the record the summary endpoint is built from.
+MIXED_THERMO_TYPE = "GGA_GGA+U_R2SCAN"
+
+# Last-resort ordering, used only when neither the formation-energy match nor the
+# mixed-scheme record resolves a material. Reaching this is recorded, not hidden.
 FUNCTIONAL_PREFERENCE = ("GGA+U", "GGA", "R2SCAN", "r2SCAN")
+
+# Formation energies agree to well under this when they come from the same record.
+FE_MATCH_TOL = 1e-4
 
 
 def _rank(energy_type: str) -> int:
@@ -151,49 +154,112 @@ def _rank(energy_type: str) -> int:
     return len(FUNCTIONAL_PREFERENCE)
 
 
-def fetch_energy_types(mpr, material_ids: list[str], batch: int = 1000) -> dict[str, dict]:
-    """Which DFT functional(s) produced each entry: GGA, GGA+U, r2SCAN.
+def fetch_energy_types(mpr, rows: list[dict], batch: int = 1000) -> dict[str, dict]:
+    """Which DFT functional produced each material's summary properties.
 
-    Lives in the thermo endpoint rather than summary, so it needs its own call.
-    Worth every second: a band gap without its functional is not a usable number,
-    and pooling a GGA gap with a GGA+U gap is a methodological error that produces
-    perfectly plausible-looking nonsense.
+    A band gap without its functional is not a usable number, and pooling a GGA
+    gap with an r2SCAN gap is a methodological error that produces perfectly
+    plausible-looking nonsense. So this has to be right, not approximately right.
 
-    **A material usually has more than one thermo record** -- Materials Project
-    computes many entries under both the GGA/GGA+U workflow and r2SCAN. An earlier
-    version of this function kept whichever record the API happened to return
-    first, which meant the recorded functional depended on network ordering. That
-    is not a decision; it is a coin flip that silently mislabels the data.
+    Two earlier attempts were both wrong, and the way they were wrong is worth
+    recording:
 
-    So we keep *all* of them, plus a deterministic `primary` chosen by
-    FUNCTIONAL_PREFERENCE, plus an `ambiguous` flag marking the materials where
-    the choice actually mattered. Downstream code can then group by primary while
-    still being able to find, count, and exclude the ambiguous cases -- rather
-    than never learning they existed.
+    1. **Keep whichever thermo record arrives first.** Materials Project returns
+       ~2.2 thermo records per material, so this made the recorded functional a
+       function of network ordering. A coin flip, not a decision.
+
+    2. **Prefer GGA over r2SCAN by a fixed rule.** Better, but still wrong.
+       `scripts/diagnose_functional.py` checked the rule against evidence and
+       refuted it: the summary endpoint agreed with GGA for 86% of TiO2 entries
+       and with **r2SCAN for the other 14%**. A fixed preference would have
+       mislabelled roughly one material in seven -- invisibly, since a mislabelled
+       functional produces no error, just a wrong grouping downstream.
+
+    What the diagnosis showed instead is that the functional is *identifiable per
+    material*, not guessable in general:
+
+    * `formation_energy_per_atom` appears in both endpoints. Whichever thermo
+      record reproduces the summary value **is** the record summary was built
+      from. That is direct evidence, material by material.
+    * Independently, there is exactly one thermo record per material carrying
+      `thermo_type == "GGA_GGA+U_R2SCAN"` -- Materials Project's blessed mixed
+      scheme -- and it is that record. This works even when the summary formation
+      energy is missing.
+
+    So we resolve by evidence first, structure second, preference only as a
+    last resort, and we record which route was taken for every material in
+    `energy_type_resolution`. A dataset that cannot tell you how confident it is
+    in its own labels is a dataset that will mislead you eventually.
     """
-    found: dict[str, set] = {}
-    for i in range(0, len(material_ids), batch):
-        block = material_ids[i : i + batch]
+    want = {r["material_id"] for r in rows}
+    summary_fe = {
+        r["material_id"]: r.get("formation_energy_per_atom")
+        for r in rows
+        if r.get("formation_energy_per_atom") is not None
+    }
+
+    records: dict[str, list[dict]] = {}
+    ids = sorted(want)
+    for i in range(0, len(ids), batch):
+        block = ids[i : i + batch]
         try:
             docs = mpr.materials.thermo.search(
-                material_ids=block, fields=["material_id", "energy_type", "thermo_type"]
+                material_ids=block,
+                fields=["material_id", "energy_type", "thermo_type",
+                        "formation_energy_per_atom"],
             )
             for d in docs:
                 mid = str(getattr(d, "material_id", ""))
                 et = getattr(d, "energy_type", None)
                 if not mid or not et:
                     continue
-                found.setdefault(mid, set()).add(str(et))
+                records.setdefault(mid, []).append({
+                    "energy_type": str(et),
+                    "thermo_type": str(getattr(d, "thermo_type", "") or ""),
+                    "formation_energy_per_atom": getattr(d, "formation_energy_per_atom", None),
+                })
         except Exception as exc:  # noqa: BLE001
             print(f"    ! thermo lookup failed for batch {i // batch}: {exc}")
 
     out: dict[str, dict] = {}
-    for mid, types in found.items():
-        ordered = sorted(types, key=_rank)
+    for mid, recs in records.items():
+        available = sorted({r["energy_type"] for r in recs})
+        chosen = resolution = None
+
+        # 1. Direct evidence: which record does the summary formation energy match?
+        target = summary_fe.get(mid)
+        if target is not None:
+            hits = {
+                r["energy_type"]
+                for r in recs
+                if r["formation_energy_per_atom"] is not None
+                and abs(float(r["formation_energy_per_atom"]) - float(target)) < FE_MATCH_TOL
+            }
+            if len(hits) == 1:
+                chosen, resolution = hits.pop(), "matched_formation_energy"
+            elif len(hits) > 1:
+                # Several records agree with summary and with each other on energy
+                # but disagree on functional -- genuinely unresolvable this way.
+                chosen, resolution = sorted(hits, key=_rank)[0], "ambiguous_energy_match"
+
+        # 2. Structural evidence: the blessed mixed-scheme record.
+        if chosen is None:
+            mixed = [r for r in recs if r["thermo_type"] == MIXED_THERMO_TYPE]
+            if len(mixed) == 1:
+                chosen, resolution = mixed[0]["energy_type"], "mixed_thermo_type"
+            elif mixed:
+                chosen = sorted({r["energy_type"] for r in mixed}, key=_rank)[0]
+                resolution = "mixed_thermo_type_multiple"
+
+        # 3. Last resort. Recorded loudly so it can be counted and excluded.
+        if chosen is None:
+            chosen, resolution = sorted(available, key=_rank)[0], "fallback_preference"
+
         out[mid] = {
-            "energy_type": ordered[0],
-            "energy_types_available": sorted(types),
-            "energy_type_ambiguous": len(types) > 1,
+            "energy_type": chosen,
+            "energy_types_available": available,
+            "energy_type_ambiguous": len(available) > 1,
+            "energy_type_resolution": resolution,
         }
     return out
 
@@ -337,9 +403,16 @@ def probe(api_key: str, n: int = 3) -> None:
                 )
                 print(f"      {k:<28} {shown}")
 
-        ids = [str(getattr(x, "material_id", "")) for x in docs]
-        et = fetch_energy_types(mpr, ids)
-        print(f"\n  energy_type lookup: {et if et else '! returned nothing -- investigate'}")
+        probe_rows = [flatten_doc(x) for x in docs]
+        probe_rows = [r for r in probe_rows if r]
+        et = fetch_energy_types(mpr, probe_rows)
+        print("\n  functional resolution:")
+        if not et:
+            print("    ! returned nothing -- investigate before downloading")
+        for mid, info in et.items():
+            print(f"    {mid:<14} {info['energy_type']:<8} "
+                  f"available={info['energy_types_available']} "
+                  f"via {info['energy_type_resolution']}")
 
     print("\n  Probe finished. If every field above is present, the full download will work.")
 
@@ -488,10 +561,11 @@ def download(
 
 def _flush(mpr, buffer: list[dict], index: int) -> None:
     """Attach the DFT functional(s) to a buffer of rows, then write it out."""
-    et = fetch_energy_types(mpr, [r["material_id"] for r in buffer])
+    et = fetch_energy_types(mpr, buffer)
     for r in buffer:
         info = et.get(r["material_id"]) or {}
         r["energy_type"] = info.get("energy_type")
         r["energy_types_available"] = info.get("energy_types_available")
         r["energy_type_ambiguous"] = info.get("energy_type_ambiguous")
+        r["energy_type_resolution"] = info.get("energy_type_resolution", "not_found")
     write_chunk(buffer, index)
