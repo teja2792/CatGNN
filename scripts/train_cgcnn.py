@@ -125,16 +125,76 @@ def selftest() -> None:
     print("\n  All checks passed. The layer computes what the equations say.\n")
 
 
+def estimate(args) -> None:
+    """Time one real epoch, then say how many the budget actually buys.
+
+    Same principle as scripts/benchmark_hardware.py: a compute budget chosen
+    without measuring it is a guess, and a model reported at 14 epochs when it
+    needed 25 is a result about the clock being presented as a result about the
+    architecture.
+    """
+    import time
+
+    torch = require_torch()
+    import numpy as np
+
+    from src.models.cgcnn import CGCNN, CGCNNConfig
+    from src.models.dataset import GraphStore, N_EDGE_FEATURES, Normaliser
+    from src.models.train import physical_cores
+
+    print("\nTiming one epoch on the real training set...")
+    store = GraphStore()
+    split = load_split(args.split)
+    tr = store.indices_for(split["train"])
+    y = store.y[args.target]
+    tr = tr[np.isfinite(y[tr])]
+
+    torch.set_num_threads(args.threads or physical_cores())
+    model = CGCNN(CGCNNConfig(atom_fea_len=args.atom_fea_len,
+                              n_conv=args.n_conv, n_edge_fea=N_EDGE_FEATURES))
+    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    norm = Normaliser(y[tr])
+    loss_fn = torch.nn.L1Loss()
+
+    n_probe = min(len(tr), 4000)
+    idx = tr[:n_probe]
+    t0 = time.perf_counter()
+    model.train()
+    for i in range(0, n_probe, args.batch_size):
+        b = store.collate(idx[i:i + args.batch_size], args.target, torch)
+        target = torch.from_numpy(
+            norm.encode(b["y"].numpy().astype(np.float64)).astype(np.float32))
+        opt.zero_grad()
+        loss_fn(model(b), target).backward()
+        opt.step()
+    per_graph = (time.perf_counter() - t0) / n_probe
+
+    val = store.indices_for(split["val"])
+    val = val[np.isfinite(y[val])]
+    epoch_min = (per_graph * len(tr) + per_graph * 0.3 * len(val)) / 60.0
+
+    print(f"  {torch.get_num_threads()} threads, {model.n_parameters():,} parameters")
+    print(f"  {per_graph * 1000:.2f} ms per training graph")
+    print(f"  train {len(tr):,}  val {len(val):,}")
+    print(f"  -> about {epoch_min:.1f} min per epoch\n")
+    for budget in (20, 35, 60, 90):
+        print(f"     {budget:>3} min budget  ->  ~{budget / epoch_min:.0f} epochs"
+              + ("   (default)" if budget == 35 else ""))
+    print("\n  The smoke run was still improving at epoch 11, so aim for 25+.\n")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--selftest", action="store_true", help="verify the layer and exit")
     ap.add_argument("--smoke", action="store_true", help="2000 crystals, 3 minutes")
+    ap.add_argument("--estimate", action="store_true",
+                    help="time one real epoch and report what the budget buys")
     ap.add_argument("--target", default="band_gap")
     ap.add_argument("--split", default="random", choices=list(SCHEMES))
     ap.add_argument("--all-splits", action="store_true")
     ap.add_argument("--nonmetals", action="store_true", help="exclude metals (band gap)")
-    ap.add_argument("--minutes", type=float, default=20.0)
+    ap.add_argument("--minutes", type=float, default=35.0)
     ap.add_argument("--batch-size", type=int, default=64)
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--atom-fea-len", type=int, default=64)
@@ -145,6 +205,10 @@ def main() -> None:
 
     if args.selftest:
         selftest()
+        return
+
+    if args.estimate:
+        estimate(args)
         return
 
     torch = require_torch()
