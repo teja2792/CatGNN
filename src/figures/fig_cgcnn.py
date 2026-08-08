@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 from .style import (
     use_house_style, caption,
-    COMPOSITION, FUSED, ACCENT, WARN, MUTED, INK, LIGHT,
+    COMPOSITION, FUSED, ACCENT, WARN, INK,
 )
 
 REPO = Path(__file__).resolve().parents[2]
