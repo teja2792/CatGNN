@@ -104,8 +104,13 @@ def panel(ax, rows, target, title, show_cgcnn=False):
 
     if show_cgcnn:
         ax.axhline(CGCNN_GAP_MAE, color=INK, ls="--", lw=1.2, alpha=0.55, zorder=4)
-        ax.text(len(splits) - 0.45, CGCNN_GAP_MAE, f" CGCNN, published ({CGCNN_GAP_MAE})",
-                fontsize=8, color=INK, va="bottom", ha="right")
+        ax.annotate(
+            f"CGCNN as published: {CGCNN_GAP_MAE} eV\n(different test set — not a\nhead-to-head, but it is the bar)",
+            xy=(len(splits) - 1.4, CGCNN_GAP_MAE), xytext=(0.30, 0.80),
+            textcoords="axes fraction", fontsize=8, color=INK, va="center",
+            arrowprops=dict(arrowstyle="->", color=INK, lw=1.0, alpha=0.7,
+                            connectionstyle="arc3,rad=-0.2"),
+        )
 
     ax.set_xticks(x)
     ax.set_xticklabels([SPLIT_LABEL[s] for s in splits], fontsize=9)

@@ -2,19 +2,97 @@
 
 **Does knowing a material's *structure* predict its properties better than knowing its *chemistry* — and can the two be combined?**
 
+![tests](https://img.shields.io/badge/tests-114%20passing-2f8f5b)
+![data](https://img.shields.io/badge/crystals-102%2C957-1f6f8b)
+![atoms](https://img.shields.io/badge/atoms-1.42M-1f6f8b)
+![edges](https://img.shields.io/badge/graph%20edges-16.9M-1f6f8b)
+![hardware](https://img.shields.io/badge/hardware-one%20laptop%20CPU-6b7280)
+![licence](https://img.shields.io/badge/licence-MIT-6b7280)
+
 Two materials can share a chemical formula and behave nothing alike. Rutile and
 anatase are both TiO₂; one is a pigment, the other is the workhorse photocatalyst.
 Any model that only sees "TiO₂" is blind to that difference by construction.
 
 This repository builds models that see the actual crystal — atoms, and the
 contacts between them, as a graph — and tests them head to head against models
-that only see the chemical formula. Then it feeds the chemistry *into* the
-structural model to find out whether they combine, and where.
+that only see the chemical formula. Every result is reported against **four
+train/test splits of increasing strictness**, so the number you read is the one
+that survives an honest test.
 
-> **Status: Phases 0–2 built, of 10.** 102,957 crystals downloaded and turned into
-> graphs, four leakage-aware splits, and a full descriptor baseline. No neural
-> network trained yet. Everything on this page is reproducible from this
-> repository today.
+---
+
+## Results so far
+
+Everything below is measured on **all 102,957 crystals**, not a sample, on one
+laptop CPU. Reproduce it with the commands in [§7](#7-running-it-yourself).
+
+### 1. Chemistry alone is a much higher bar than people assume
+
+A random forest on **nothing but looked-up element properties** — electronegativity,
+ionic radius, valence electron count — with **no crystal structure at all**:
+
+| Target | Chemistry only | + cheap structure | Trivial floor |
+|---|---|---|---|
+| **Band gap** | **0.342 eV** | 0.335 eV | 0.744 eV |
+| Band gap, non-metals | 0.523 eV | 0.511 eV | 1.155 eV |
+| Formation energy | 0.172 eV/atom | **0.121 eV/atom** | 1.018 eV/atom |
+| Stability (E above hull) | 0.149 eV/atom | **0.092 eV/atom** | 0.194 eV/atom |
+
+For scale, the published CGCNN paper reports **0.388 eV** on Materials Project
+band gap. Composition-only descriptors land at **0.342 eV** here. *That is not a
+head-to-head* — different snapshot, different subset, different split — but it
+sets the bar a graph network has to clear, and the bar is high.
+
+### 2. Structure helps enormously for energies and barely at all for band gap
+
+Adding cheap structural features (density, volume per atom, space group, packing
+fraction) on top of chemistry:
+
+| Target | Improvement from structure |
+|---|---|
+| Band gap | **+0.6% to +3.9%** |
+| Band gap, non-metals | +2.3% to +2.6% |
+| Formation energy | **+25.6% to +32.5%** |
+| Stability | **+33.3% to +46.2%** |
+
+Chemically this makes sense — formation energy and hull distance are packing and
+thermodynamic quantities, while a band gap is electronic and dominated by which
+elements are present. For stability, *structure alone beats chemistry alone*
+(0.125 vs 0.149 eV/atom). It is the only target where that happens.
+
+### 3. A random split hides model degradation completely
+
+Pooled band-gap error barely moves across splits (0.33–0.43 eV) and is even
+*better* on unseen elements. That looks like a model that generalises. It isn't —
+59% of the dataset are metals with a gap of exactly zero, and they mask
+everything. Restrict to non-metals and the real curve appears:
+
+| Split | Non-metal band gap MAE |
+|---|---|
+| Random | 0.511 eV |
+| New formula | 0.547 eV |
+| New chemical system | 0.614 eV |
+| **New element** | **0.694 eV**  → **36% worse** |
+
+And **42.6% of a random test set shares a chemical formula with something in
+training**. Li₇Mn₂(CoO₄)₃ alone has 221 entries at identical cell size.
+
+### 4. Two bugs that would have been completely silent
+
+Both were caught by tests that check physics, not code paths, and both are
+written up in full below:
+
+- **Periodic images.** At an 8 Å cutoff, a single atom in a 3 Å cell has **80
+  neighbours**; the textbook ±1 image search finds **26**. It would have truncated
+  the neighbour list of nearly every small cell with no symptom but worse models.
+- **DFT functional assignment.** Materials Project returns ~2.2 thermodynamic
+  records per material. Taking the first one made the recorded functional depend
+  on *network response order*. A fixed preference rule was **refuted by evidence**:
+  the summary endpoint agrees with r2SCAN for 14% of TiO₂ entries.
+
+> **Status: Phases 0–2 of 10 built.** Dataset, graphs, leakage-aware splits and
+> the full descriptor baseline are done. **No neural network trained yet** — that
+> is Phase 3. Everything on this page is reproducible from this repository today.
 
 ---
 
@@ -129,7 +207,17 @@ Tiering rules: [`DATA_GROUNDING.md`](DATA_GROUNDING.md).
 
 ### What the downloaded data actually looks like
 
-102,957 crystals, all 89 elements, 1.4 million atoms, zero malformed structures.
+| | |
+|---|---|
+| Crystals | **102,957** — the complete Materials Project pull under `n_sites ≤ 30`, not a sample |
+| Atoms | **1,415,796** |
+| Graph edges | **16,919,485** (11.95 per atom, 8 Å cutoff) |
+| Elements | **89 of 89** |
+| Unique formulas | 70,228, of which **14,976 have more than one polymorph** |
+| Build time | 30 min download + 2.5 min graph construction, on one laptop |
+| On disk | 27 MB raw + 85 MB graph cache |
+| Malformed structures | **0** |
+
 Four facts that shaped every decision after:
 
 - **46% of materials share a formula with another material.** 14,976 formulas have
@@ -206,9 +294,26 @@ This matters because it separates two claims that are easy to confuse. "Structur
 helps" is interesting. "Density helps" is much less interesting, and is what you
 would actually have shown if you never measured the middle column.
 
-> **Note on the figure above:** if it is labelled PROVISIONAL, it was produced from
-> a reduced training set as a pipeline check. Run `python scripts/run_baselines.py`
-> without `--subsample` for the real numbers.
+The full sweep — 4 models × 3 blocks × 4 targets × 4 splits, 192 fits — takes
+**13 minutes** on a 6-core laptop. The headline numbers are in
+[§Results](#results-so-far); the complete table is `results/baselines.json`.
+
+**What this means for Phase 3.** A graph network now has a specific, measured job
+rather than a vague one:
+
+- On **band gap**, it has to beat **0.342 eV from chemistry alone**, and it cannot
+  lean on density or symmetry to do it — those are worth under 4%. Whatever it
+  gains has to come from message passing seeing coordination environments.
+- On **formation energy and stability**, cheap structure already buys 26–46%, so
+  the interesting question is not *whether* structure helps but whether a graph
+  beats a handful of scalars that take milliseconds to compute.
+- The honest scoreboard is the **non-metal band gap under the element-disjoint
+  split**: 0.694 eV. That is the number that reflects what happens when a model
+  meets chemistry it was never trained on.
+
+> If the figure above is labelled PROVISIONAL, it was produced from a reduced
+> training set as a pipeline check. Run `python scripts/run_baselines.py` without
+> `--subsample` for the real numbers.
 
 ---
 
