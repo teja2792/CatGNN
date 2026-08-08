@@ -258,3 +258,6 @@ mp_api_key.txt
 results/**/*.parquet
 results/**/*.h5
 results/raw/
+
+# Trained model checkpoints (regenerable, and large)
+models/
