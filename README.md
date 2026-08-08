@@ -6,22 +6,22 @@ Two materials can share a chemical formula and behave nothing alike. Rutile and
 anatase are both TiO₂; one is a pigment, the other is the workhorse photocatalyst.
 Any model that only sees "TiO₂" is blind to that difference by construction.
 
-This repository builds models that see the actual crystal — atoms, and the contacts
-between them, as a graph — and tests them head to head against models that only see
-the chemical formula. Then it feeds the chemistry *into* the structural model to find
-out whether they combine, and where.
+This repository builds models that see the actual crystal — atoms, and the
+contacts between them, as a graph — and tests them head to head against models
+that only see the chemical formula. Then it feeds the chemistry *into* the
+structural model to find out whether they combine, and where.
 
-> **Status: Phase 0 of 10 — the question, the data sourcing, and the hardware budget
-> are settled. No models trained yet.** This repo is being built in the open, and the
-> roadmap below shows honestly what exists and what does not. Everything on this page
-> is reproducible today from the data in this repository.
+> **Status: Phases 0–2 built, of 10.** 102,957 crystals downloaded and turned into
+> graphs, four leakage-aware splits, and a full descriptor baseline. No neural
+> network trained yet. Everything on this page is reproducible from this
+> repository today.
 
 ---
 
 ## Reading this without a machine learning background
 
-Everything above **"Under the hood"** is written for a chemical or materials engineer.
-Here is the whole vocabulary you need:
+Everything above **"Under the hood"** is written for a chemical or materials
+engineer. Here is the whole vocabulary you need:
 
 | Term | What it means |
 |---|---|
@@ -29,8 +29,8 @@ Here is the whole vocabulary you need:
 | **Node** | One atom. |
 | **Edge** | One neighbour contact — two atoms close enough to interact. |
 | **Message passing** | Each atom updates its own description using its neighbours', over and over. After three rounds an atom's description reflects its full coordination environment — the same information you use when you say "octahedral Ti". |
-| **Embedding** | A learned numerical fingerprint of an atom or a whole material. Similar materials get similar fingerprints. |
-| **Descriptor** | A chemical property you already know and can look up: electronegativity, ionic radius, oxidation state, coordination number. |
+| **Descriptor** | A chemical property you already know and can look up: electronegativity, ionic radius, melting point, valence electron count. |
+| **Baseline** | A deliberately simple model. If the complicated one can't beat it, the complication wasn't worth it. |
 | **Training / test split** | The model learns from one set of materials and is graded on a different set it has never seen. Grading it on what it memorised would tell you nothing. |
 | **MAE** | Mean absolute error — the typical size of the model's mistake, in the property's own units. "MAE 0.3 eV" means predictions are off by about 0.3 eV on average. |
 | **DFT** | Density functional theory, the quantum calculation that produced most of the numbers here. Calculated, not measured. |
@@ -38,90 +38,84 @@ Here is the whole vocabulary you need:
 
 ---
 
-## The problem, in one figure
+## 1. The problem, in one figure
 
 ![One formula, many structures, many band gaps](results/figures/fig1_polymorph_problem.png)
 
-Materials Project holds **44 different TiO₂ crystal structures** computed with the same
-DFT settings. Their band gaps run from **0.00 to 3.42 eV**. Same formula, every one of
-them.
+Materials Project holds **44 different TiO₂ crystal structures** computed with the
+same DFT settings. Their band gaps run from **0.00 to 3.42 eV**. Same formula,
+every one of them. Anatase comes out at 2.06 eV, rutile at 1.77 eV, brookite at
+2.29 eV — and those are just the three anyone has named.
 
-Anatase comes out at 2.06 eV, rutile at 1.77 eV, brookite at 2.29 eV — and those are
-just the three anyone has named.
+A model handed only the formula "TiO₂" has no way to tell these apart. It receives
+one input, so it must produce one output, for all 44. The best it can possibly do
+is predict the middle of the pack — and the average distance from that middle to
+the real values is an error it can **never** remove, no matter how good the model
+is or how much data you give it.
 
-A model that is handed only the formula "TiO₂" has no way to tell these apart. It
-receives one input, so it must produce one output, for all 44. The best it can possibly
-do is predict the middle of the pack — and the average distance from that middle to the
-real values is an error it can **never** remove, no matter how good the model is or how
-much data you give it.
+**For TiO₂ that unavoidable error is 0.43 eV.** For scale: a well-known
+structure-aware model (CGCNN) has a *total* band-gap error of about 0.39 eV across
+all of Materials Project. The same pattern shows up in every family we checked —
+0.55 eV for Fe₂O₃, 0.82 eV for CeO₂.
 
-**For TiO₂ that unavoidable error is 0.43 eV.**
-
-For scale: a well-known structure-aware model (CGCNN) has a *total* band-gap error of
-about 0.39 eV across all of Materials Project. So on this family, being blind to
-structure costs more than a good model's entire error budget. The same pattern shows up
-in every family we checked — 0.55 eV for Fe₂O₃, 0.82 eV for CeO₂.
-
-**That gap is the reason this repository exists.** How much of it can a structure-aware
-model actually recover? And on which properties? Nobody should assume the answer; it
-needs measuring.
-
-> **An honest caveat, since it matters.** This is one formula, and it motivates the
-> question rather than answering it. The real answer needs baselines run across the
-> whole dataset — that is Phase 2. If those disagree with this figure, this figure is
-> what gets corrected.
+**That gap is the reason this repository exists.** How much of it can a
+structure-aware model actually recover? Nobody should assume the answer.
 
 ---
 
-## What a crystal graph actually is
+## 2. What a crystal graph actually is
 
 ![How a crystal becomes a graph](results/figures/fig2_crystal_to_graph.png)
 
-Nothing exotic happens between panels 1 and 2. A graph is a bonding diagram in a form
-a computer can read: atoms become nodes, neighbour contacts become edges, and each edge
-carries its bond length.
+Nothing exotic happens between panels 1 and 2. A graph is a bonding diagram in a
+form a computer can read: atoms become nodes, neighbour contacts become edges,
+and each edge carries its bond length.
 
 Panel 3 is the only genuinely new idea. Each atom repeatedly rewrites its own
-description using its neighbours' descriptions. After one round it knows its immediate
-neighbours; after three, it carries its whole local coordination environment. That is
-what "message passing" means, and it is why these models can tell rutile from anatase
-when a formula cannot.
+description using its neighbours'. After three rounds it carries its whole local
+coordination environment. That is what "message passing" means, and it is why
+these models can tell rutile from anatase when a formula cannot.
 
-The structure in that figure is real rutile, built from published neutron-diffraction
-parameters. The script recomputes the Ti–O bond lengths and gets **1.949 Å (×4
-equatorial) and 1.980 Å (×2 apical)** against the measured 1.946 and 1.983 Å — and it
-asserts that agreement on every run, so a typo in a lattice constant fails loudly
-instead of quietly producing a wrong picture.
+The structure in that figure is real rutile, built from published
+neutron-diffraction parameters. The script recomputes the Ti–O bond lengths and
+gets **1.949 Å (×4 equatorial) and 1.980 Å (×2 apical)** against the measured
+1.946 and 1.983 Å — asserted on every run, so a typo in a lattice constant fails
+loudly instead of quietly producing a wrong picture.
 
 <details>
-<summary><b>A bug worth reading about, if you ever build one of these</b></summary>
+<summary><b>Two bugs worth reading about, if you ever build one of these</b></summary>
 
 <br>
 
-Rutile's unit cell contains only 4 oxygens, yet every Ti is octahedrally coordinated by
-6. Those extra oxygens live in the *neighbouring repeat* of the crystal.
+**Periodic images, part one.** Rutile's unit cell contains only 4 oxygens, yet
+every Ti is octahedrally coordinated by 6. Those extra oxygens live in the
+*neighbouring repeat* of the crystal. The textbook shortcut — the "minimum image
+convention", keeping only the closest copy of each neighbouring atom — silently
+returns **Ti CN = 4** and destroys the octahedron. Nothing downstream complains.
 
-The textbook shortcut — the "minimum image convention", keeping only the closest copy
-of each neighbouring atom — silently returns **Ti CN = 4** and destroys the octahedron.
-Nothing downstream complains. The model just trains on subtly wrong chemistry and
-returns plausible-looking numbers.
+**Periodic images, part two.** How many repeats you need depends on the cutoff
+*and* the cell. At the 8 Å cutoff the real models use, a single atom in a 3 Å
+cubic cell has **80 neighbours within range**; a hard-coded ±1 image search finds
+**26**. It would have truncated the neighbour list of every small cell — which is
+most of the interesting ones. Worse, the depth must be computed from the cell's
+*perpendicular width*, not its vector lengths: for a skewed cell with |b| = 5.0 Å
+but a perpendicular width of 2.2 Å, the naive rule gives 2 images where 4 are
+needed.
 
-The fix is to count *every* periodic image inside the cutoff, not just the nearest.
-This is now checked by a test that fails if coordination numbers drift
-(`tests/test_phase0.py::test_rutile_coordination_numbers`).
+Both are now pinned by tests against brute-force answers.
 
 </details>
 
 ---
 
-## Where every number comes from
+## 3. Where every number comes from
 
 ![Data provenance](results/figures/fig3_data_provenance.png)
 
-**Nothing in this repository is invented.** Four of the five prediction targets are
-downloaded directly from open databases. The fifth — catalytic activity — is computed
-from real adsorption energies through a published thermodynamic equation, and is called
-a *descriptor* everywhere it appears, never a rate.
+**Nothing in this repository is invented.** Four of the five prediction targets
+are downloaded directly from open databases. The fifth — catalytic activity — is
+computed from real adsorption energies through a published thermodynamic
+equation, and is called a *descriptor* everywhere it appears, never a rate.
 
 | What | Where from | What kind of number |
 |---|---|---|
@@ -130,24 +124,35 @@ a *descriptor* everywhere it appears, never a rate.
 | Adsorption energy | Catalysis-Hub (SUNCAT), Open Catalyst | Calculated by DFT |
 | Catalytic activity descriptor | Derived here from adsorption energies, via scaling relations | A thermodynamic proxy, **not a measured rate** |
 
-Full licences, API endpoints, access dates and citations: [`SOURCES.md`](SOURCES.md).
-The tiering rules: [`DATA_GROUNDING.md`](DATA_GROUNDING.md).
+Full licences, endpoints, access dates and citations: [`SOURCES.md`](SOURCES.md).
+Tiering rules: [`DATA_GROUNDING.md`](DATA_GROUNDING.md).
+
+### What the downloaded data actually looks like
+
+102,957 crystals, all 89 elements, 1.4 million atoms, zero malformed structures.
+Four facts that shaped every decision after:
+
+- **46% of materials share a formula with another material.** 14,976 formulas have
+  multiple polymorphs; SiO₂ alone has 103 entries spanning 0.00–6.47 eV. The
+  premise of this repo has real data behind it.
+- **59% are metals** — band gap exactly zero. Predicting zero for *everything*
+  scores 0.739 eV. Any band-gap result that doesn't separate metals from
+  non-metals is flattering itself.
+- **29% are computed under more than one DFT functional.** GGA, GGA+U and r2SCAN
+  band gaps are different quantities; pooling them produces a plausible-looking
+  number that means nothing.
+- **70% are `theoretical`** — never experimentally observed.
 
 ### What this repository does *not* do
 
 - **It does not predict measured catalytic activity.** No dataset pairs crystal
-  structures with measured turnover frequencies at the scale a neural network needs.
-  What it produces is a theoretical activity descriptor computed from predicted
-  adsorption energies. That is a legitimate screening quantity. It is not a rate you
-  would measure in a reactor.
-- **It inherits DFT's errors.** The models learn from DFT numbers, so wherever DFT is
-  systematically wrong they will be confidently wrong in the same direction. The
-  experimental band gaps let us *measure* that inheritance instead of asserting it.
-  (A sibling repo, [`MPExplorer`](https://github.com/teja2792/MPExplorer), documents a
-  ~75% DFT underestimate for Cu₂O specifically.)
-- **"Stable" means stable in DFT.** Our own snapshot shows the catch: of 44 TiO₂
-  polymorphs, DFT puts **anatase** on the convex hull, not rutile — while rutile is the
-  ambient-stable phase in reality.
+  structures with measured turnover frequencies at the scale a neural network
+  needs. What it produces is a theoretical activity descriptor. That is a
+  legitimate screening quantity. It is not a rate you would measure in a reactor.
+- **It inherits DFT's errors.** The models learn from DFT numbers, so wherever DFT
+  is systematically wrong they will be confidently wrong in the same direction.
+- **"Stable" means stable in DFT.** Of 44 TiO₂ polymorphs, DFT puts **anatase** on
+  the convex hull, not rutile — while rutile is the ambient-stable phase in reality.
 - **It was trained on a laptop.** Reduced scale, and it will not match published
   leaderboard numbers. The gap gets reported, with its reason.
 
@@ -156,28 +161,78 @@ Everything that could go wrong, written down before the results existed:
 
 ---
 
-## What is built, and what is not
+## 4. A random split is not a fair test
+
+![Split leakage](results/figures/fig5_split_leakage.png)
+
+The default in materials ML is a random train/test split. On this database it is
+optimistic to the point of being misleading, and the reason is concrete:
+**Li₇Mn₂(CoO₄)₃ alone has 221 entries at identical cell size** — the same lattice
+with different cation orderings. A random split scatters those across training and
+test, so the model memorises one and is graded on its near-twin.
+
+**42.6% of a random test set shares a chemical formula with something in
+training.** Under the formula-disjoint split that drops to zero.
+
+So four splits are built, each answering a different honest question, and **every
+result in this repository is reported against all four**:
+
+| Split | The question it answers |
+|---|---|
+| **Random** | How well does it do on more of the same? *(the optimistic default)* |
+| **Formula-disjoint** | …on a formula it has never seen? |
+| **System-disjoint** | …on a chemical system it has never seen? |
+| **Element-disjoint** | …on an **element** it has never seen? *(the extrapolation test)* |
+
+The gap between the first and last is one of the most useful numbers this repo can
+produce: it tells you how much to discount a published leaderboard score when
+applying a model to chemistry that was not in its training set.
+
+---
+
+## 5. The bar a neural network has to clear
+
+![Baselines](results/figures/fig6_baselines.png)
+
+Before building any neural network, we measured what you get from **looking up
+element properties in a table** — electronegativity, ionic radius, valence
+electron count, melting point — and feeding 192 statistics of them to gradient
+boosting. No crystal structure at all. It takes minutes.
+
+Then the same thing plus **cheap structural facts** that need the crystal but not
+a graph: density, volume per atom, space group, crystal system, packing fraction.
+
+This matters because it separates two claims that are easy to confuse. "Structure
+helps" is interesting. "Density helps" is much less interesting, and is what you
+would actually have shown if you never measured the middle column.
+
+> **Note on the figure above:** if it is labelled PROVISIONAL, it was produced from
+> a reduced training set as a pipeline check. Run `python scripts/run_baselines.py`
+> without `--subsample` for the real numbers.
+
+---
+
+## 6. What is built, and what is not
 
 ![Build plan and status](results/figures/fig4_roadmap.png)
 
-The interesting phase is **5**. A neural network learns representations from structure;
-a chemist already has decades of intuition encoded as descriptors. Do they combine?
-Four fusion strategies get ablated, and the headline figure will be a data-efficiency
-curve: **below some training-set size, known chemistry beats learned structure.** Where
-that crossover sits is a practical answer to "which should I use?" for anyone with a
-few hundred measurements rather than a few hundred thousand — which is the normal
-situation in a catalysis lab.
+The interesting phase is **5**. A neural network learns representations from
+structure; a chemist already has decades of intuition encoded as descriptors. Do
+they combine? Four fusion strategies get ablated, and the headline figure will be
+a data-efficiency curve: **below some training-set size, known chemistry beats
+learned structure.** Where that crossover sits is a practical answer to "which
+should I use?" for anyone with a few hundred measurements rather than a few
+hundred thousand — the normal situation in a catalysis lab.
 
-Be warned that the answer may be unflattering to the neural networks. On several
+Be warned the answer may be unflattering to the neural networks. On several
 standard benchmarks, plain composition descriptors with gradient boosting are
 competitive with structural GNNs. If that reproduces here, it gets reported.
 
 ---
 
-## Running it yourself
+## 7. Running it yourself
 
-Phase 0 needs three packages. Nothing heavier is required to regenerate everything on
-this page.
+Figures 1–4 need only three packages:
 
 ```bash
 git clone https://github.com/teja2792/CatGNN
@@ -185,18 +240,34 @@ cd CatGNN
 pip install "numpy>=1.24" "pandas>=2.0" "matplotlib>=3.7" "pytest>=7.4"
 
 python scripts/benchmark_hardware.py    # measure YOUR machine, writes COMPUTE_BUDGET.md
-python scripts/make_figures.py          # rebuild every figure above from source data
-pytest -q                               # 14 correctness tests
+python scripts/make_figures.py --only 1 --only 2 --only 3 --only 4
+pytest -q                               # 114 correctness tests
+```
+
+To rebuild the dataset and results from scratch (~35 minutes, needs a free
+[Materials Project API key](https://next-gen.materialsproject.org/api)):
+
+```bash
+pip install -r requirements.txt
+setx MP_API_KEY "your_key"          # PowerShell; open a NEW terminal after
+
+python scripts/fetch_mp.py --probe   # 10 s: verify key, network, response shape
+python scripts/fetch_mp.py           # ~30 min: 102,958 crystals, ~27 MB
+python scripts/inspect_mp.py         # look at the data before modelling it
+python scripts/build_graphs.py       # ~3 min: 16.9M edges, ~85 MB
+python scripts/build_graphs.py --verify
+python scripts/make_splits.py        # four splits + leakage report
+python scripts/run_baselines.py      # the bar the GNNs have to clear
+python scripts/make_figures.py       # rebuild every figure from source data
 ```
 
 No figure here is hand-drawn or hand-edited — each is generated from the data in
-`data/reference/` or from published crystal structures, and CI fails if a committed
-figure stops matching its script.
+`data/reference/` or from published crystal structures, and CI fails if a
+committed figure stops matching its script.
 
-`benchmark_hardware.py` exists because quoting somebody else's GPU timings would be
-useless. It times graph construction and message passing on *your* CPU and writes a
-dataset-size budget to [`COMPUTE_BUDGET.md`](COMPUTE_BUDGET.md). Every scoping decision
-in Phase 1 refers to that measured number rather than to a guess.
+`benchmark_hardware.py` exists because quoting somebody else's GPU timings would
+be useless. It times graph construction and message passing on *your* CPU and
+writes a dataset-size budget to [`COMPUTE_BUDGET.md`](COMPUTE_BUDGET.md).
 
 ---
 
@@ -209,44 +280,55 @@ in Phase 1 refers to that measured number rather than to a guess.
 | | |
 |---|---|
 | **Question** | Does structure-aware message passing beat composition descriptors, and does fusing them help? |
-| **Primary targets** | Band gap and formation energy (Materials Project, GGA), then adsorption energy |
-| **Baselines** | Ridge / Random Forest / gradient boosting on Magpie + hand-built chemical descriptors |
-| **Architectures** | CGCNN (from scratch), MPNN, MEGNet, ALIGNN, GATv2 |
-| **Splits** | Random, composition-disjoint, structure-similarity-disjoint, Matbench official folds |
-| **Protocol** | Identical wall-clock budget per model, ≥3 seeds, error bars on everything |
+| **Dataset** | Materials Project, 102,957 crystals, `n_sites ≤ 30`, complete pull (not a sample) |
+| **Targets** | Band gap (pooled and non-metals), formation energy, energy above hull; later adsorption energy |
+| **Graphs** | 8 Å cutoff, ≤12 neighbours, periodic, 1.42M nodes / 16.9M edges |
+| **Descriptors** | 192 composition features (Magpie-style over 31 element properties) + 13 cheap structural |
+| **Baselines** | Median / Ridge / Random Forest / HistGradientBoosting |
+| **Architectures** | CGCNN (from scratch), MPNN, MEGNet, ALIGNN, GATv2 — Phase 3+ |
+| **Splits** | Random, formula-disjoint, system-disjoint, element-disjoint |
+| **Protocol** | Identical wall-clock budget per model, ≥3 seeds, error bars |
 | **Hardware** | Ryzen 5 laptop, CPU only |
 
-Each architecture is present to test one specific thing, not for completeness: MPNN asks
-whether generic message passing suffices; MEGNet asks whether an explicit global state
-helps (and is the natural injection point for a descriptor vector); ALIGNN asks whether
-bond angles matter; GATv2 provides genuine attention.
+Each architecture is present to test one thing, not for completeness: MPNN asks
+whether generic message passing suffices; MEGNet asks whether an explicit global
+state helps (and is the natural injection point for a descriptor vector); ALIGNN
+asks whether bond angles matter; GATv2 provides genuine attention.
 
 ### On "attention"
 
-CGCNN, MEGNet and ALIGNN have **no attention mechanism.** CGCNN uses a sigmoid *gate*
-in its convolution — `σ(zW_f + b_f) ⊙ g(zW_s + b_s)` — with no softmax over neighbours
-and no query/key. ALIGNN uses edge gating. MEGNet uses a global state vector. All three
-are routinely mislabelled as attention in blog posts and portfolio repos.
+CGCNN, MEGNet and ALIGNN have **no attention mechanism.** CGCNN uses a sigmoid
+*gate* in its convolution — `σ(zW_f + b_f) ⊙ g(zW_s + b_s)` — with no softmax over
+neighbours and no query/key. ALIGNN uses edge gating. MEGNet uses a global state
+vector. All three are routinely mislabelled as attention.
 
-Where this repo shows attention maps they come from GATv2, which actually has attention.
-For the other models it shows gate activations and integrated-gradient attributions, and
-labels them as such.
+Where this repo shows attention maps they come from GATv2, which actually has
+attention. For the others it shows gate activations and integrated-gradient
+attributions, and labels them as such.
 
-### Splits, and why the obvious one is wrong
+### Reproducibility choices
 
-Random splits on materials databases leak: near-duplicate polymorphs and same-composition
-entries land on both sides, so the test set is not unseen and the reported error is
-optimistic. All four schemes above are run and reported side by side. The random split
-is expected to look best, and the size of that gap is itself a result.
+- **Element properties are committed**, not read from pymatgen at feature time
+  (`data/reference/element_properties.json`, regenerable via
+  `scripts/make_element_table.py`). A library upgrade must not silently change the
+  features underneath a comparison.
+- **Graph edges store raw distances**; the Gaussian basis expansion happens in the
+  model. Caching 41 floats per edge would turn an 85 MB cache into ~6 GB and would
+  freeze a modelling choice into the data.
+- **Missing element properties are imputed once, visibly** (column median, in
+  `property_matrix()`), rather than propagating NaN through every statistic.
+- **Every download writes a manifest** with query, filters, date, row count,
+  sha256 and a one-way fingerprint of the API key. The key never touches a file.
 
 ### Where this sits in the current landscape
 
-CGCNN (2018), MEGNet (2019) and ALIGNN (2021) are here because they are the clearest
-crystal GNNs to implement and understand — not because they are current. The field has
-moved to equivariant architectures (NequIP, MACE, SevenNet) and universal interatomic
-potentials (M3GNet, CHGNet, MatterSim), and by 2025–26 the Matbench leaderboards are led
-by foundation-model approaches. Those assume GPU compute this project deliberately does
-not. Nothing here is a statement about what the best current method can do.
+CGCNN (2018), MEGNet (2019) and ALIGNN (2021) are here because they are the
+clearest crystal GNNs to implement and understand — not because they are current.
+The field has moved to equivariant architectures (NequIP, MACE, SevenNet) and
+universal interatomic potentials (M3GNet, CHGNet, MatterSim), and by 2025–26 the
+Matbench leaderboards are led by foundation-model approaches. Those assume GPU
+compute this project deliberately does not. Nothing here is a statement about what
+the best current method can do.
 
 ---
 

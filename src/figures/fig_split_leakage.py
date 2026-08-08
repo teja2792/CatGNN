@@ -20,8 +20,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from .style import (
-    use_house_style, caption, source_stamp,
-    STRUCTURE, COMPOSITION, FUSED, ACCENT, WARN, MUTED, INK, LIGHT,
+    use_house_style, caption,
+    STRUCTURE, COMPOSITION, FUSED, ACCENT, WARN, MUTED, INK,
 )
 
 REPO = Path(__file__).resolve().parents[2]

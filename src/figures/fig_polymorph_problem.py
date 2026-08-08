@@ -29,7 +29,6 @@ from .style import (
     WARN,
     MUTED,
     INK,
-    LIGHT,
 )
 
 REPO = Path(__file__).resolve().parents[2]

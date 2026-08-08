@@ -29,6 +29,7 @@ FIGURES = {
     3: ("src.figures.fig_data_provenance", "Where every number comes from"),
     4: ("src.figures.fig_roadmap", "Build plan and current status"),
     5: ("src.figures.fig_split_leakage", "Why a random split is not a fair test"),
+    6: ("src.figures.fig_baselines", "The bar every neural network has to clear"),
 }
 
 

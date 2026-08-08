@@ -17,7 +17,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
-from .style import use_house_style, caption, STRUCTURE, COMPOSITION, FUSED, ACCENT, MUTED, INK, LIGHT
+from .style import use_house_style, caption, STRUCTURE, COMPOSITION, FUSED, ACCENT, MUTED, INK
 
 REPO = Path(__file__).resolve().parents[2]
 OUT = REPO / "results" / "figures"
@@ -37,9 +37,9 @@ PHASES = [
     ("Foundations", 1, "Data layer",
      "Download, build periodic graphs, cache, leakage-aware splits", DONE),
     ("Foundations", 2, "Chemical descriptors and baselines",
-     "The bar every neural network has to clear", ACTIVE),
+     "The bar every neural network has to clear", DONE),
     ("Models", 3, "CGCNN, written from scratch",
-     "One architecture understood completely, with invariance tests", TODO),
+     "One architecture understood completely, with invariance tests", ACTIVE),
     ("Models", 4, "Controlled architecture comparison",
      "MPNN, MEGNet, ALIGNN, GATv2 under one identical budget", TODO),
     ("The question", 5, "Descriptor–GNN fusion",

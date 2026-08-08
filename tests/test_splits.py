@@ -22,7 +22,6 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from src.data.splits import (  # noqa: E402
-    DEFAULT_FRACTIONS,
     leakage_report,
     split_by_element,
     split_by_groups,

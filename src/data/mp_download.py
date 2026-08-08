@@ -38,7 +38,6 @@ from ..config import (
     MAX_SITES,
     MIN_SITES,
     RANDOM_SEED,
-    get_mp_api_key,
     key_fingerprint,
 )
 

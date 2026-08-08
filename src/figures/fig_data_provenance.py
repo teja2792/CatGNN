@@ -16,7 +16,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 
-from .style import use_house_style, caption, source_stamp, TIER_COLORS, MUTED, INK, LIGHT
+from .style import use_house_style, caption, TIER_COLORS, MUTED, INK
 
 REPO = Path(__file__).resolve().parents[2]
 OUT = REPO / "results" / "figures"

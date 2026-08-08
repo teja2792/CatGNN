@@ -64,7 +64,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        from mp_api.client import MPRester  # noqa: F401
+        __import__("mp_api.client")
     except ImportError:
         print("mp-api is not installed.\n\n    pip install mp-api\n")
         sys.exit(1)

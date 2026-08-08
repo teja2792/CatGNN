@@ -7,7 +7,6 @@ to the same project. Imported by every script in ``src/figures/``.
 from __future__ import annotations
 
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 
 # ---------------------------------------------------------------------------
 # Palette

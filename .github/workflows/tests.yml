@@ -26,23 +26,31 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install Phase 0 dependencies
+      - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "numpy>=1.24" "pandas>=2.0" "matplotlib>=3.7" "pytest>=7.4"
+          pip install "numpy>=1.24" "pandas>=2.0" "matplotlib>=3.7" \
+                      "scikit-learn>=1.3" "pytest>=7.4"
 
       - name: Run tests
         run: pytest -q
 
-      - name: Rebuild every figure from source data
-        run: python scripts/make_figures.py
+      # Figures 1-4 are built from committed data, so CI can regenerate them and
+      # check they still match. Figures 5-6 depend on data/cache/, which is
+      # gitignored (85 MB of graphs), so they cannot be rebuilt here -- checking
+      # them would just fail on every clean checkout for the wrong reason.
+      - name: Rebuild the figures that need no cache
+        run: python scripts/make_figures.py --only 1 --only 2 --only 3 --only 4
 
       - name: Fail if a committed figure is stale
         run: |
-          if ! git diff --quiet -- results/figures/; then
-            echo "::error::Figures in results/figures/ differ from what the scripts produce."
+          if ! git diff --quiet -- results/figures/fig1_polymorph_problem.png \
+                                   results/figures/fig2_crystal_to_graph.png \
+                                   results/figures/fig3_data_provenance.png \
+                                   results/figures/fig4_roadmap.png; then
+            echo "::error::Committed figures differ from what the scripts produce."
             echo "Run 'python scripts/make_figures.py' and commit the result."
             git diff --stat -- results/figures/
             exit 1
           fi
-          echo "All committed figures match their source scripts."
+          echo "Committed figures match their source scripts."
