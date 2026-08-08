@@ -251,6 +251,16 @@ def main() -> None:
         res = train(model, store, load_split(split_name), cfg, torch, MODELS_DIR)
         all_results[split_name] = res
 
+        # Persist after every split, not once at the end. A 35-minute run whose
+        # results file is written only after the loop is a 35-minute run you can
+        # lose to a typo in a print statement.
+        RESULTS.mkdir(parents=True, exist_ok=True)
+        _tag = f"cgcnn_{args.target}{'_nonmetals' if args.nonmetals else ''}"
+        if args.smoke:
+            _tag += "_smoke"
+        (RESULTS / f"{_tag}.json").write_text(json.dumps(all_results, indent=2),
+                                              encoding="utf-8")
+
     RESULTS.mkdir(parents=True, exist_ok=True)
     tag = f"cgcnn_{args.target}{'_nonmetals' if args.nonmetals else ''}"
     if args.smoke:
