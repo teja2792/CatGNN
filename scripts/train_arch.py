@@ -214,14 +214,26 @@ def main() -> None:
     gc.collect()
 
     # Everything gathered so far, so progress through the sweep is visible.
-    print(f"\n{'=' * 66}\n  All architectures so far — {args.target}"
-          f"{' (non-metals)' if args.nonmetals else ''}\n{'=' * 66}")
+    #
+    # Parameter count is printed next to every error on purpose. These
+    # architectures are NOT the same size -- MEGNet's global-state MLPs make it
+    # roughly 1.6x CGCNN, and MPNN's single edge MLP makes it smaller than both.
+    # Without the size column, "MEGNet wins" and "the biggest model wins" look
+    # identical on the page. With it, the reader can judge for themselves.
+    print(f"\n{'=' * 72}\n  All architectures so far — {args.target}"
+          f"{' (non-metals)' if args.nonmetals else ''}\n{'=' * 72}")
     splits = [s for s in SCHEMES if any(s in v for v in merged.values())]
-    print(f"  {'model':<9}" + "".join(f"{s:>12}" for s in splits))
+    print(f"  {'model':<9}{'params':>10}" + "".join(f"{s:>12}" for s in splits))
+    print("  " + "-" * 70)
     for arch, runs in merged.items():
+        npar = next((r.get("n_parameters") for r in runs.values()
+                     if r.get("n_parameters")), None)
         cells = "".join(f"{runs[s]['test']['mae']:>12.4f}" if s in runs else f"{'—':>12}"
                         for s in splits)
-        print(f"  {arch:<9}{cells}")
+        print(f"  {arch:<9}{npar:>10,}" if npar else f"  {arch:<9}{'?':>10}", end="")
+        print(cells)
+    print("\n  Sizes differ. A win smaller than the size gap is not an "
+          "architecture result.")
     print(f"\nwrote {path.relative_to(REPO)}")
 
 
