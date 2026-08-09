@@ -156,3 +156,28 @@ and are **never** overwritten by a later pull:
 
 Raw downloads are `.gitignore`d — they are large and reproducible from the manifest.
 The manifests themselves are committed.
+
+## Band gap: DFT versus experiment
+
+Used in figure 13 and in the README's "what the numbers mean" section, to set the
+model's error against the error of the data it is trained on.
+
+- Kim, S., Lee, M., Hong, C., Yoon, Y., An, H., Lee, D., Jeong, W., Yoo, D.,
+  Kang, Y., Youn, Y. & Han, S. *A band-gap database for semiconducting inorganic
+  materials calculated with hybrid functional.* **Scientific Data 7, 387 (2020)**.
+  https://www.nature.com/articles/s41597-020-00723-8
+
+  Quoted for its reported RMSE of existing **GGA-based databases against
+  experiment: 0.75–1.05 eV**, against 0.36 eV for their hybrid-functional
+  database. This repository trains on GGA / GGA+U / r2SCAN values from Materials
+  Project, so that 0.75–1.05 eV is the error already present in the labels before
+  any model touches them.
+
+- Materials Project documentation, *Electronic Structure* methodology page, which
+  states that band gaps in the database are underestimated relative to experiment.
+  https://docs.materialsproject.org/methodology/materials-methodology/electronic-structure
+
+The reference band gaps for Ge, Si, GaAs, GaP, CdS, TiO2, ZnO and diamond used in
+figure 13 are standard room-temperature **experimental** values from
+semiconductor physics texts, and are labelled as experimental on the figure
+precisely because the dataset holds DFT values, which are smaller.

@@ -71,10 +71,56 @@ deleting the gate entirely changes the error by 0.001 eV.
 
 ---
 
+## First: what every "eV" number on this page means
+
+![What is an eV](results/figures/fig13_what_is_an_ev.png)
+
+Every headline number in this repository is a number of **electron-volts**, so it
+is worth being exact about what that number is — because it is easy to assume it
+means something it doesn't.
+
+**It is not one material.** It is not a calibration constant, and it does not
+belong to any particular metal or compound. It is a **mean absolute error**: take
+thousands of crystals the model has never seen, predict the band gap of each one,
+and average how far off it was. "0.393 eV" means *the typical miss, across 4,308
+different materials.*
+
+**The property being predicted is the band gap** — the energy needed to knock an
+electron loose. It is the single number that decides whether a crystal conducts,
+semiconducts or insulates, what colour it absorbs, and whether it can drive a
+photocatalytic reaction under sunlight. Silicon is 1.12 eV, TiO₂ is 3.20 eV,
+diamond is 5.47 eV.
+
+**Metals are excluded from most of these numbers.** A metal has a band gap of
+exactly zero by definition, and **58.9% of this dataset are metals**. Leaving them
+in lets a model score well by learning nothing more than "is this a metal" — which
+is why the tables say *non-metals*. Across the 42,314 non-metals, the median gap
+is **1.45 eV**, so a 0.393 eV error is about **27% of a typical value**.
+
+**And the labels themselves are wrong by more than the model is.** These models
+are trained on DFT calculations, so the best they could ever do is reproduce DFT
+exactly. DFT is not reality: GGA-family functionals systematically underestimate
+real band gaps, and published GGA databases sit **0.75–1.05 eV RMSE away from
+laboratory measurements**
+([Kim et al., *Sci. Data* **7**, 387, 2020](https://www.nature.com/articles/s41597-020-00723-8)).
+
+> So: this model reproduces DFT to **0.393 eV**, and DFT reproduces the laboratory
+> to about **0.9 eV**. If you want an experimental band gap, the calculation you
+> are copying is now the larger source of error, not the network. That matters far
+> more for using these numbers than any of the model comparisons below.
+
+Formation energy and stability are quoted in **eV per atom** — a different
+quantity on a different scale, always labelled as such.
+
+---
+
 ## Results so far
 
 Everything below is measured on **all 102,957 crystals**, not a sample, on one
 laptop CPU. Reproduce it with the commands in [§7](#7-running-it-yourself).
+
+Unless a table says otherwise, every number is a **mean absolute error in
+DFT-computed band gap, in eV, over non-metals only** — see the section above.
 
 ### 0. The headline: a graph network wins — until it meets a new element
 
@@ -309,9 +355,15 @@ engineer. Here is the whole vocabulary you need:
 ### How to read any number in this repository
 
 Every prediction error is a **mean absolute error in electron-volts** — the typical
-size of the model's mistake, in the property's own units. Lower is better. For
-context on band gap: 0.4 eV is roughly the difference between a material that
-absorbs blue light and one that absorbs green.
+size of the model's mistake, averaged over every material in the test set, in the
+property's own units. Lower is better. It is never a single material's error and
+never a calibration offset; see
+[the section above](#first-what-every-ev-number-on-this-page-means) for the full
+version, including why 0.4 eV is smaller than DFT's own disagreement with the lab.
+
+Quick scale: silicon's band gap is 1.12 eV, TiO₂'s is 3.20 eV, and the median
+non-metal in this dataset is 1.45 eV. So a 0.4 eV error is roughly a quarter of a
+typical value — enough to move a material in or out of the visible-light range.
 
 Every result is reported **four times**, once per test set, because a model's
 score depends enormously on how you choose what to test it on:

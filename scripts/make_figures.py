@@ -37,6 +37,7 @@ FIGURES = {
     10: ("src.figures.fig_gnn", "A graph network drawn as a network"),
     11: ("src.figures.fig_message_rules", "How each architecture weights a bond"),
     12: ("src.figures.fig_fusion", "Does the periodic table fix the collapse?"),
+    13: ("src.figures.fig_what_is_an_ev", "What an error of 0.4 eV actually means"),
 }
 
 
