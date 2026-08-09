@@ -26,6 +26,7 @@ would hugely overstate the uncertainty in their *difference*.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -63,9 +64,27 @@ def paired_bootstrap(err_a: np.ndarray, err_b: np.ndarray, n_boot: int = N_BOOT)
     return float(err_a.mean() - err_b.mean()), float(lo), float(hi), float(p)
 
 
+GROUPS = {
+    # Phase 4: four message-passing rules, random split.
+    "architectures": dict(
+        tag="band_gap_random_nonmetals",
+        models=["cgcnn", "mpnn", "gatv2", "megnet"],
+        out="architecture_significance.json"),
+    # Phase 5: what the atom's starting numbers are, on the split that broke.
+    "fusion": dict(
+        tag="band_gap_element_nonmetals",
+        models=["cgcnn", "cgcnn_properties", "cgcnn_both", "cgcnn_both_comp"],
+        out="fusion_significance.json"),
+}
+
+
 def main() -> None:
-    tag = "band_gap_random_nonmetals"
-    archs = ["cgcnn", "mpnn", "gatv2", "megnet"]
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--group", default="architectures", choices=list(GROUPS))
+    args = ap.parse_args()
+    g = GROUPS[args.group]
+    tag, archs = g["tag"], g["models"]
 
     loaded = {}
     for a in archs:
@@ -96,24 +115,34 @@ def main() -> None:
     print(f"{'=' * 78}\n")
 
     order = sorted(errs, key=lambda a: errs[a].mean())
-    print(f"  {'model':<9}{'MAE (eV)':>11}{'median':>10}{'params':>10}")
-    print("  " + "-" * 40)
-    cfgpath = RESULTS / "architectures_band_gap_nonmetals.json"
+    w = max(len(a) for a in errs) + 2
+    print(f"  {'model':<{w}}{'MAE (eV)':>11}{'median':>10}{'params':>11}")
+    print("  " + "-" * (w + 32))
+    # Parameter counts, wherever the run that produced them wrote them.
     sizes = {}
-    if cfgpath.exists():
-        for k, v in json.loads(cfgpath.read_text(encoding="utf-8")).items():
-            sizes[k] = v["random"].get("n_parameters")
+    for path in ("architectures_band_gap_nonmetals.json",
+                 "fusion_band_gap_nonmetals.json"):
+        f = RESULTS / path
+        if f.exists():
+            for k, v in json.loads(f.read_text(encoding="utf-8")).items():
+                for run in v.values():
+                    if run.get("n_parameters"):
+                        sizes[k] = run["n_parameters"]
     cg = RESULTS / "cgcnn_band_gap_nonmetals.json"
     if cg.exists():
-        sizes["cgcnn"] = json.loads(cg.read_text(encoding="utf-8"))["random"].get("n_parameters")
+        blob = json.loads(cg.read_text(encoding="utf-8"))
+        for run in blob.values():
+            if run.get("n_parameters"):
+                sizes["cgcnn"] = run["n_parameters"]
     for a in order:
-        s = sizes.get(a)
-        print(f"  {a:<9}{errs[a].mean():>11.4f}{np.median(errs[a]):>10.4f}"
-              f"{(f'{s:,}' if s else '?'):>10}")
+        sz = sizes.get(a)
+        print(f"  {a:<{w}}{errs[a].mean():>11.4f}{np.median(errs[a]):>10.4f}"
+              f"{(f'{sz:,}' if sz else '?'):>11}")
 
     print("\n  Every pair, best-first. CI is on the DIFFERENCE in MAE.\n")
-    print(f"  {'comparison':<20}{'Δ MAE':>9}{'95% CI':>20}{'p':>9}   verdict")
-    print("  " + "-" * 74)
+    cw = max(len(a) + len(b) + 6 for i, a in enumerate(order) for b in order[i + 1:])
+    print(f"  {'comparison':<{cw}}{'Δ MAE':>9}{'95% CI':>21}{'p':>9}   verdict")
+    print("  " + "-" * (cw + 55))
 
     rows = []
     for i, a in enumerate(order):
@@ -121,12 +150,13 @@ def main() -> None:
             d, lo, hi, p = paired_bootstrap(errs[a], errs[b])
             sig = hi < 0 or lo > 0
             verdict = (f"{a} better" if sig else "indistinguishable")
-            print(f"  {a + ' vs ' + b:<20}{d:>+9.4f}  [{lo:>+7.4f},{hi:>+7.4f}]"
+            print(f"  {a + ' vs ' + b:<{cw}}{d:>+9.4f}   [{lo:>+7.4f}, {hi:>+7.4f}]"
                   f"{p:>9.4f}   {verdict}")
             rows.append({"a": a, "b": b, "delta_mae": d, "ci_low": lo,
                          "ci_high": hi, "p": p, "significant": bool(sig)})
 
     out = {
+        "group": args.group, "tag": tag,
         "test_materials": int(n), "n_bootstrap": N_BOOT, "seed": SEED,
         "mae": {a: float(errs[a].mean()) for a in order},
         "median_ae": {a: float(np.median(errs[a])) for a in order},
@@ -136,7 +166,7 @@ def main() -> None:
                    "seed-to-seed variation in training; a significant result "
                    "means 'better on these materials', not 'better if retrained'."),
     }
-    path = RESULTS / "architecture_significance.json"
+    path = RESULTS / g["out"]
     path.write_text(json.dumps(out, indent=2), encoding="utf-8")
 
     print("\n  This resamples MATERIALS, not training runs. It answers 'is the")

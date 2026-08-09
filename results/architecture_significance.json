@@ -1,4 +1,6 @@
 {
+  "group": "architectures",
+  "tag": "band_gap_random_nonmetals",
   "test_materials": 4308,
   "n_bootstrap": 20000,
   "seed": 42,

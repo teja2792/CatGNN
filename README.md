@@ -118,13 +118,15 @@ The other three tests show the opposite: train longer, do better.
 | CGCNN | 0.414 → 1.019 eV  (**+146%**) |
 | Descriptors | 0.511 → 0.694 eV  (**+36%**) |
 
-**This is the single most useful number in the repository.** It says: a published
+**This is the single most useful number in the repository.** It says a published
 GNN benchmark score tells you very little about how the model will behave on
-chemistry outside its training set — and it points directly at the fix, which is
-Phase 5. Give the network the looked-up element properties *as node features*
-instead of a learned lookup table, and it should degrade like the descriptors do
-while keeping the structural advantage. That is now a hypothesis with evidence
-behind it rather than a plan.
+chemistry outside its training set.
+
+It also points directly at a fix: give the network the looked-up element
+properties *as node features* instead of letting it learn a private code. **That
+fix was built and run — see [§5](#5-the-fix-worked--and-two-of-my-three-predictions-were-wrong).
+It cuts the 1.019 eV down to 0.663 eV**, which finally beats the descriptor model
+on the one test the descriptors had been winning.
 
 > Three of the four runs stopped on the time budget with validation still
 > falling, so those are **lower bounds**. The element-disjoint run stopped on
@@ -229,7 +231,54 @@ other, while the gap between a random split and an unseen-element split is
 **0.6 eV** — ten times larger. The problem is what the model knows about
 elements, not how it moves information between them.
 
-### 5. Two bugs that would have been completely silent
+### 5. The fix worked — and two of my three predictions were wrong
+
+![Phase 5 fusion](results/figures/fig12_fusion.png)
+
+§0 diagnosed the collapse: the network learns a *private code* for each element
+from training data, so an element it never met has a code that was never learned.
+Phase 5 tested that by deleting the learned code and giving each atom its
+**tabulated properties instead** — electronegativity, ionic radius, row, group,
+valence count. Those exist for every element in the periodic table whether or not
+you have ever seen a compound of it.
+
+Same architecture, same budget, same test set. The only change is what numbers
+each atom starts with.
+
+| What each atom starts with | Unseen-element error | |
+|---|---|---|
+| A learned code (Phase 3) | 1.019 eV | the collapse |
+| Learned code **+** properties | 0.836 eV | |
+| …and the 192 descriptors too | 0.745 eV | |
+| **Properties only, no learned code** | **0.663 eV** | **−35%** |
+| *Descriptors alone, no structure at all* | *0.694 eV* | *the bar to beat* |
+
+**The graph network now beats a structure-blind model on its own strongest
+ground.** Paired bootstrap on the 3,666 test materials: deleting the learned code
+is worth **0.356 eV, 95% range [0.325, 0.388]**, p < 10⁻⁴.
+
+**Three predictions were written into the script before any run. One held.**
+
+- ✅ *"The unseen-element error will improve a lot."* It did — 1.019 → 0.663 eV.
+- ❌ *"The random-split error will get slightly worse."* It got **better**:
+  0.414 → 0.393 eV. I expected 31 fixed properties to be less expressive than 64
+  free numbers per element where the model has seen everything. They weren't. The
+  periodic table helps even when nothing is missing.
+- ❌ *"'Both' will be the best of the three."* It was the **worst** fusion
+  variant: 0.836 eV against 0.663 eV. Adding the 192 descriptors on top
+  (0.745 eV) recovered some of that but never caught plain properties.
+
+**That third failure is the most useful thing in this section.** The obvious
+engineering instinct — give the model everything and let it decide — is wrong
+here, and reliably so: three variants that *keep* the learned code all lose to
+the one that *removes* it. A free per-element vector is the easier way to fit the
+training set, so gradient descent leans on it and the chemistry pathway
+underdevelops. **The shortcut has to be removed, not supplemented.**
+
+`scripts/diagnose_fusion.py` checks that explanation against the trained weights
+rather than leaving it as a plausible story.
+
+### 6. Two bugs that would have been completely silent
 
 Both were caught by tests that check physics, not code paths, and both are
 written up in full below:
@@ -242,12 +291,13 @@ written up in full below:
   on *network response order*. A fixed preference rule was **refuted by evidence**:
   the summary endpoint agrees with r2SCAN for 14% of TiO₂ entries.
 
-> **Status: Phases 0–4 of 10 built, Phase 5 in progress.** Dataset, graphs,
-> leakage-aware splits, descriptor baselines, CGCNN from scratch, and a
-> controlled four-architecture comparison are done. Phase 5 — feeding the
-> periodic table into the network as atom features — is implemented and tested;
-> the runs are pending. §4 above is why it is the next thing rather than a
-> fifth architecture.
+> **Status: Phases 0–5 of 10 built.** Dataset, graphs, leakage-aware splits,
+> descriptor baselines, CGCNN from scratch, a controlled four-architecture
+> comparison, and descriptor–GNN fusion. The central question the repository was
+> built to ask now has an answer: structure beats chemistry by ~20%, collapses
+> when the chemistry is unfamiliar, and **the collapse is fixed by giving the
+> network the periodic table rather than by changing the architecture.**
+> Phase 6 (interpretability) and Phase 7 (catalysis targets) are next.
 
 ---
 
@@ -561,6 +611,9 @@ python scripts/train_fusion.py --selftest                        # 1 min
 python scripts/train_fusion.py --atoms properties --split element --nonmetals
 python scripts/train_fusion.py --atoms both       --split element --nonmetals
 python scripts/train_fusion.py --atoms properties --split random  --nonmetals
+python scripts/train_fusion.py --atoms both --composition --split element --nonmetals
+python scripts/compare_architectures.py --group fusion    # is the gap bigger than the noise?
+python scripts/diagnose_fusion.py                         # why did 'both' lose?
 
 python scripts/make_figures.py       # rebuild every figure from source data
 ```

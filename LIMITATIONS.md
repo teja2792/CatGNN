@@ -176,7 +176,45 @@ an input that only the baselines had before. A reader comparing the Phase 3 and
 Phase 5 numbers should read the difference as "what the periodic table is worth
 to a graph network", not as a like-for-like architecture improvement.
 
-## 13. Single author, no independent replication
+## 13. In the element split, validation and test hold out DIFFERENT elements
+
+The element-disjoint split holds out ten elements — Ac, Ga, He, Ho, Kr, N, Nd,
+Pt, Si, Sm — and divides them between validation and test so that neither shares
+chemistry with the other. That is the right design for the question being asked,
+but it has a consequence worth stating.
+
+**Validation error is not an unbiased estimate of test error here.** They are
+measured on different chemistry. In the Phase 5 runs, validation MAE sat around
+0.93–1.12 eV while test MAE came out at 0.66–0.84 eV for the same models. The
+val/test gap is a property of which elements landed where, not of the models.
+
+Two things follow:
+
+- Comparisons **between variants** remain valid, because every variant uses the
+  identical validation and test sets. All the reported differences are of that
+  kind.
+- **Early stopping is noisier than usual.** "Best epoch" is chosen on one set of
+  unfamiliar elements and reported on another. `cgcnn_both_comp` had its best
+  validation score at epoch 0 and stopped after 16 epochs on that basis; a
+  different val/test division of the same ten elements could plausibly have
+  stopped it elsewhere.
+
+Not a bug in the split — holding elements out is the entire point — but it means
+the Phase 5 numbers carry more run-to-run variance than the random-split numbers
+do, on top of the single-seed caveat in §10.
+
+## 14. Phase 5 improves the strict splits; only two of four were re-run
+
+`properties` was run on the element-disjoint split (the one that motivated the
+phase) and the random split (to check nothing broke on the easy case). The
+formula-disjoint and chemsys-disjoint splits were **not** re-run, because each
+costs 35 minutes and the two endpoints were the informative ones.
+
+So the README's Phase 5 table is complete for the two splits it shows and silent
+about the middle two. It would be reasonable to expect intermediate improvements
+there; it has not been measured, and the table does not imply otherwise.
+
+## 15. Single author, no independent replication
 
 Everything here was built and checked by one person. The mitigations — assertions
 that fail loudly, figures regenerated from source data rather than hand-edited, CI on

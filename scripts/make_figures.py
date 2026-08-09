@@ -36,6 +36,7 @@ FIGURES = {
     9: ("src.figures.fig_architectures", "Do the fancier architectures help?"),
     10: ("src.figures.fig_gnn", "A graph network drawn as a network"),
     11: ("src.figures.fig_message_rules", "How each architecture weights a bond"),
+    12: ("src.figures.fig_fusion", "Does the periodic table fix the collapse?"),
 }
 
 

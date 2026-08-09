@@ -1,0 +1,82 @@
+{
+  "group": "fusion",
+  "tag": "band_gap_element_nonmetals",
+  "test_materials": 3666,
+  "n_bootstrap": 20000,
+  "seed": 42,
+  "mae": {
+    "cgcnn_properties": 0.6629605889320374,
+    "cgcnn_both_comp": 0.7452262043952942,
+    "cgcnn_both": 0.8357298374176025,
+    "cgcnn": 1.0194162130355835
+  },
+  "median_ae": {
+    "cgcnn_properties": 0.4714100956916809,
+    "cgcnn_both_comp": 0.5647151470184326,
+    "cgcnn_both": 0.6072793006896973,
+    "cgcnn": 0.6997708082199097
+  },
+  "n_parameters": {
+    "cgcnn_properties": 76929,
+    "cgcnn_both_comp": 116353,
+    "cgcnn_both": 91649,
+    "cgcnn": 81345
+  },
+  "pairs": [
+    {
+      "a": "cgcnn_properties",
+      "b": "cgcnn_both_comp",
+      "delta_mae": -0.08226561546325684,
+      "ci_low": -0.10157613754272461,
+      "ci_high": -0.06289792060852052,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "cgcnn_properties",
+      "b": "cgcnn_both",
+      "delta_mae": -0.17276924848556519,
+      "ci_low": -0.19759218543767929,
+      "ci_high": -0.14734174013137818,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "cgcnn_properties",
+      "b": "cgcnn",
+      "delta_mae": -0.35645562410354614,
+      "ci_low": -0.38840334117412567,
+      "ci_high": -0.3250569760799409,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "cgcnn_both_comp",
+      "b": "cgcnn_both",
+      "delta_mae": -0.09050363302230835,
+      "ci_low": -0.1172514259815216,
+      "ci_high": -0.06371115297079086,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "cgcnn_both_comp",
+      "b": "cgcnn",
+      "delta_mae": -0.2741900086402893,
+      "ci_low": -0.3084333837032318,
+      "ci_high": -0.24055470228195192,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "cgcnn_both",
+      "b": "cgcnn",
+      "delta_mae": -0.18368637561798096,
+      "ci_low": -0.20864244997501374,
+      "ci_high": -0.15964530855417253,
+      "p": 0.0,
+      "significant": true
+    }
+  ],
+  "caveat": "Paired bootstrap over test materials only. Does not capture seed-to-seed variation in training; a significant result means 'better on these materials', not 'better if retrained'."
+}
