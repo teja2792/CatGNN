@@ -41,7 +41,7 @@ PHASES = [
     ("Models", 3, "CGCNN, written from scratch",
      "One architecture understood completely, with invariance tests", DONE),
     ("Models", 4, "Controlled architecture comparison",
-     "MPNN, MEGNet, GATv2 under one identical budget", ACTIVE),
+     "MPNN, MEGNet, GATv2 under one identical budget", DONE),
     ("The question", 5, "Descriptor–GNN fusion",
      "Does chemistry added to structure help? Where, and by how much?", ACTIVE),
     ("The question", 6, "Interpretability, done correctly",

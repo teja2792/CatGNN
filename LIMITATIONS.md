@@ -100,7 +100,47 @@ question; it does not answer it. The answer requires Phase 2's baselines across 
 full dataset, and if those disagree with the illustration, the illustration is what
 gets corrected.
 
-## 10. Single author, no independent replication
+## 10. The architecture comparison rests on one seed per model
+
+Each of the four architectures in §4 of the README was trained **once**. The
+reported uncertainty comes from resampling the 4,308 test materials, which
+captures "would this gap survive a different test set" but *not* "would it survive
+a different random initialisation". Seed-to-seed variation in a network this size
+is typically comparable to the smaller gaps reported.
+
+Concretely, this means:
+
+- The **null result is the robust part.** CGCNN and MPNN differ by 0.001 eV with
+  a 95% range of [−0.013, +0.010] eV. Adding seed variance would widen that
+  interval, which can only strengthen "indistinguishable" — it cannot turn a null
+  into a difference.
+- The **ranking of the losers is the fragile part.** GATv2 at 0.439 and MEGNet at
+  0.475 are separated by 0.037 eV. That gap would probably survive reseeding, but
+  it has not been shown to.
+
+Five seeds per architecture is the correct experiment and costs roughly twelve
+hours on this laptop. It is not run, and the results are labelled accordingly
+rather than presented as if it had been.
+
+## 11. MEGNet is confounded in both directions, and cannot be cleanly ranked
+
+MEGNet carries **132,673 parameters against MPNN's 60,417** — an advantage — and
+is slow enough per epoch that it completed **37 passes through the data against
+MPNN's 55** inside the same 35 minutes — a disadvantage. Its validation error was
+still falling when the budget expired.
+
+So "MEGNet is the worst of the four" is not an architecture result. It is a result
+about MEGNet *under a fixed wall-clock budget on a CPU*, which is a legitimate and
+practically relevant question but a different one. A reader who wants "is a global
+state a good idea" should treat the MEGNet number as unresolved.
+
+This is the same objection that kept **ALIGNN** out of the comparison entirely —
+its line-graph convolution is several times more expensive per epoch, so under a
+shared clock it would report an architecture verdict that is really a speed
+verdict. MEGNet was included because its overhead is mild enough to be worth the
+caveat; ALIGNN's is not.
+
+## 12. Single author, no independent replication
 
 Everything here was built and checked by one person. The mitigations — assertions
 that fail loudly, figures regenerated from source data rather than hand-edited, CI on

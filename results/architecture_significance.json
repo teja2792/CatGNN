@@ -1,0 +1,80 @@
+{
+  "test_materials": 4308,
+  "n_bootstrap": 20000,
+  "seed": 42,
+  "mae": {
+    "cgcnn": 0.413652241230011,
+    "mpnn": 0.4149887263774872,
+    "gatv2": 0.43895551562309265,
+    "megnet": 0.4754750430583954
+  },
+  "median_ae": {
+    "cgcnn": 0.2783138155937195,
+    "mpnn": 0.27609097957611084,
+    "gatv2": 0.2924199104309082,
+    "megnet": 0.3395985960960388
+  },
+  "n_parameters": {
+    "cgcnn": 81345,
+    "mpnn": 60417,
+    "gatv2": 80769,
+    "megnet": 132673
+  },
+  "pairs": [
+    {
+      "a": "cgcnn",
+      "b": "mpnn",
+      "delta_mae": -0.0013364851474761963,
+      "ci_low": -0.012786636501550675,
+      "ci_high": 0.010159496217966064,
+      "p": 0.816,
+      "significant": false
+    },
+    {
+      "a": "cgcnn",
+      "b": "gatv2",
+      "delta_mae": -0.025303274393081665,
+      "ci_low": -0.03802457749843598,
+      "ci_high": -0.012507412582635881,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "cgcnn",
+      "b": "megnet",
+      "delta_mae": -0.0618228018283844,
+      "ci_low": -0.073857881128788,
+      "ci_high": -0.049767678231000916,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "mpnn",
+      "b": "gatv2",
+      "delta_mae": -0.02396678924560547,
+      "ci_low": -0.035804543644189835,
+      "ci_high": -0.012078300863504414,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "mpnn",
+      "b": "megnet",
+      "delta_mae": -0.0604863166809082,
+      "ci_low": -0.0723076306283474,
+      "ci_high": -0.04902269542217258,
+      "p": 0.0,
+      "significant": true
+    },
+    {
+      "a": "gatv2",
+      "b": "megnet",
+      "delta_mae": -0.036519527435302734,
+      "ci_low": -0.04941955953836441,
+      "ci_high": -0.023740444332361235,
+      "p": 0.0,
+      "significant": true
+    }
+  ],
+  "caveat": "Paired bootstrap over test materials only. Does not capture seed-to-seed variation in training; a significant result means 'better on these materials', not 'better if retrained'."
+}

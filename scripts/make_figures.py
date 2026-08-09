@@ -32,6 +32,7 @@ FIGURES = {
     6: ("src.figures.fig_baselines", "The bar every neural network has to clear"),
     7: ("src.figures.fig_cgcnn", "Did the graph network beat the descriptors?"),
     8: ("src.figures.fig_overfitting", "Why it fails on an unseen element"),
+    9: ("src.figures.fig_architectures", "Do the fancier architectures help?"),
 }
 
 

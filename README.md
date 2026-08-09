@@ -2,7 +2,7 @@
 
 **Does knowing a material's *structure* predict its properties better than knowing its *chemistry* — and can the two be combined?**
 
-![tests](https://img.shields.io/badge/tests-121%20passing-2f8f5b)
+![tests](https://img.shields.io/badge/tests-125%20passing-2f8f5b)
 ![data](https://img.shields.io/badge/crystals-102%2C957-1f6f8b)
 ![atoms](https://img.shields.io/badge/atoms-1.42M-1f6f8b)
 ![edges](https://img.shields.io/badge/graph%20edges-16.9M-1f6f8b)
@@ -131,7 +131,55 @@ everything. Restrict to non-metals and the real curve appears:
 And **42.6% of a random test set shares a chemical formula with something in
 training**. Li₇Mn₂(CoO₄)₃ alone has 221 entries at identical cell size.
 
-### 4. Two bugs that would have been completely silent
+### 4. The most-copied idea in this field does not measurably do anything
+
+![Architecture comparison](results/figures/fig9_architecture_comparison.png)
+
+CGCNN's defining feature — the thing the 2018 paper is built around, and the
+thing hundreds of follow-up papers inherited — is a learned "volume knob" on
+every bond: a number between 0 and 1 that decides how loudly that bond's message
+is heard. It sounds obviously useful. Chemically, it is how you would say
+*this contact matters more than that one*.
+
+So we removed it. **MPNN is CGCNN with the knob deleted and nothing else
+changed** — same inputs, same way messages are combined, same readout, same
+35-minute budget, same 4,308 test materials.
+
+| Model | What it adds | Band-gap error | Tunable numbers |
+|---|---|---|---|
+| **CGCNN** | a per-bond "volume knob" | **0.414 eV** | 81,345 |
+| **MPNN** | *nothing* — plain message passing | **0.415 eV** | 60,417 |
+| GATv2 | bonds compete for a fixed attention budget | 0.439 eV | 80,769 |
+| MEGNet | a running whole-crystal summary | 0.475 eV | 132,673 |
+
+The difference between the top two is **0.001 eV**. Resampling the test set
+20,000 times puts the 95% range on that difference at **[−0.013, +0.010] eV** —
+comfortably containing zero. For scale, DFT's own disagreement with experiment on
+band gap is roughly **1 eV**, a thousand times larger.
+
+**The knob is not doing measurable work**, and it costs 21,000 extra tunable
+numbers to not do it.
+
+The two designs that *do* change the answer both make it **worse**. Forcing an
+atom's bonds to compete for a fixed 100% attention budget (GATv2) costs 0.025 eV;
+adding a whole-crystal summary vector (MEGNet) costs 0.062 eV while carrying more
+than twice MPNN's parameters and fitting fewer passes through the data into the
+same wall clock.
+
+> **Read this the right way.** This is one target, one dataset, one seed, one
+> budget. It does **not** say CGCNN's gate is useless everywhere — it says that on
+> 33,687 training crystals predicting band gap, it buys nothing you could measure.
+> The uncertainty above comes from resampling *materials*, not from retraining
+> with different random seeds, which would widen it further. Both caveats are in
+> [LIMITATIONS.md](LIMITATIONS.md).
+
+The useful conclusion for Phase 5 is that **architecture is not the lever here.**
+Four different ways of passing messages between atoms land within 0.06 eV of each
+other, while the gap between a random split and an unseen-element split is
+**0.6 eV** — ten times larger. The problem is what the model knows about
+elements, not how it moves information between them.
+
+### 5. Two bugs that would have been completely silent
 
 Both were caught by tests that check physics, not code paths, and both are
 written up in full below:
@@ -144,10 +192,11 @@ written up in full below:
   on *network response order*. A fixed preference rule was **refuted by evidence**:
   the summary endpoint agrees with r2SCAN for 14% of TiO₂ entries.
 
-> **Status: Phases 0–3 of 10 built.** Dataset, graphs, leakage-aware splits,
-> descriptor baselines, and CGCNN from scratch. Phase 4 adds MPNN, MEGNet, ALIGNN
-> and GATv2 under the same budget; Phase 5 tests whether feeding the chemistry
-> descriptors *into* the network fixes the element-generalisation collapse.
+> **Status: Phases 0–4 of 10 built.** Dataset, graphs, leakage-aware splits,
+> descriptor baselines, CGCNN from scratch, and a controlled four-architecture
+> comparison. Phase 5 tests whether feeding the chemistry descriptors *into* the
+> network fixes the element-generalisation collapse — which §4 above says is a
+> far bigger lever than swapping architectures.
 
 ---
 
@@ -426,7 +475,7 @@ pip install "numpy>=1.24" "pandas>=2.0" "matplotlib>=3.7" "pytest>=7.4"
 
 python scripts/benchmark_hardware.py    # measure YOUR machine, writes COMPUTE_BUDGET.md
 python scripts/make_figures.py --only 1 --only 2 --only 3 --only 4
-pytest -q                               # 121 correctness tests
+pytest -q                               # 125 correctness tests
 ```
 
 To rebuild the dataset and results from scratch (~35 minutes, needs a free
@@ -450,8 +499,23 @@ python scripts/train_cgcnn.py --split random --nonmetals    # 35 min each
 python scripts/train_cgcnn.py --split formula --nonmetals
 python scripts/train_cgcnn.py --split chemsys --nonmetals
 python scripts/train_cgcnn.py --split element --nonmetals
+
+python scripts/train_arch.py --selftest                      # 1 min: all four models
+python scripts/train_arch.py --arch mpnn   --split random --nonmetals   # 35 min each
+python scripts/train_arch.py --arch megnet --split random --nonmetals
+python scripts/train_arch.py --arch gatv2  --split random --nonmetals
+python scripts/compare_architectures.py    # seconds: is any gap bigger than the noise?
+
 python scripts/make_figures.py       # rebuild every figure from source data
 ```
+
+`train_arch.py --selftest` is worth the minute. It checks all four models against
+the physical facts they must respect — renaming the atoms must not change the
+answer, doubling the unit cell must not change the answer, and batching two
+crystals together must give the same answers as running them separately — plus
+GATv2's attention weights against an independently written NumPy implementation.
+A model that violates any of these still trains happily and still reports a
+number; the number just means nothing.
 
 No figure here is hand-drawn or hand-edited — each is generated from the data in
 `data/reference/` or from published crystal structures, and CI fails if a
@@ -477,22 +541,37 @@ writes a dataset-size budget to [`COMPUTE_BUDGET.md`](COMPUTE_BUDGET.md).
 | **Graphs** | 8 Å cutoff, ≤12 neighbours, periodic, 1.42M nodes / 16.9M edges |
 | **Descriptors** | 192 composition features (Magpie-style over 31 element properties) + 13 cheap structural |
 | **Baselines** | Median / Ridge / Random Forest / HistGradientBoosting |
-| **Architectures** | CGCNN (from scratch, done), MPNN, MEGNet, ALIGNN, GATv2 — Phase 4 |
+| **Architectures** | CGCNN, MPNN, MEGNet, GATv2 — all four built from scratch and run (Phase 4). ALIGNN deliberately excluded |
 | **Splits** | Random, formula-disjoint, system-disjoint, element-disjoint |
-| **Protocol** | Identical wall-clock budget per model, ≥3 seeds, error bars |
+| **Protocol** | Identical 35-min wall-clock budget per model; **one seed each so far**, uncertainty from bootstrapping the test set |
 | **Hardware** | Ryzen 5 laptop, CPU only |
 
 Each architecture is present to test one thing, not for completeness: MPNN asks
-whether generic message passing suffices; MEGNet asks whether an explicit global
-state helps (and is the natural injection point for a descriptor vector); ALIGNN
-asks whether bond angles matter; GATv2 provides genuine attention.
+whether CGCNN's gate earns its keep (answer: no — see §4 of the results); MEGNet
+asks whether an explicit global state helps, and is the natural injection point
+for a descriptor vector in Phase 5; GATv2 provides genuine attention, so Phase 6's
+attention maps come from a model that actually has some.
+
+**ALIGNN is deliberately excluded.** Its line-graph convolution — which adds bond
+*angles* — costs several times CGCNN's per epoch. Under a shared wall-clock budget
+it would report "ALIGNN is worse" when the honest statement is "ALIGNN saw a third
+as many passes through the data". Including it would have produced a number that
+looks like an architecture result and is really a clock result. Bond angles remain
+an open question here, not a settled one.
 
 ### On "attention"
 
-CGCNN, MEGNet and ALIGNN have **no attention mechanism.** CGCNN uses a sigmoid
-*gate* in its convolution — `σ(zW_f + b_f) ⊙ g(zW_s + b_s)` — with no softmax over
-neighbours and no query/key. ALIGNN uses edge gating. MEGNet uses a global state
-vector. All three are routinely mislabelled as attention.
+CGCNN and MEGNet have **no attention mechanism.** CGCNN uses a sigmoid *gate* in
+its convolution — `σ(zW_f + b_f) ⊙ g(zW_s + b_s)` — with no softmax over neighbours
+and no query/key. Every bond is scored independently in (0,1), so all of an atom's
+bonds can be wide open at once. MEGNet uses a global state vector. Both are
+routinely mislabelled as attention.
+
+The distinction is not pedantry: only a softmax **across** an atom's neighbours
+produces weights that sum to one, and only weights that sum to one can honestly be
+read as "the model looked *here* rather than *there*". This repo asserts that
+property in a test rather than assuming it, and checks the PyTorch implementation
+against an independent NumPy one (they agree exactly).
 
 Where this repo shows attention maps they come from GATv2, which actually has
 attention. For the others it shows gate activations and integrated-gradient
@@ -514,7 +593,7 @@ attributions, and labels them as such.
 
 ### Where this sits in the current landscape
 
-CGCNN (2018), MEGNet (2019) and ALIGNN (2021) are here because they are the
+CGCNN (2018), MEGNet (2019) and GATv2 (2022) are here because they are the
 clearest crystal GNNs to implement and understand — not because they are current.
 The field has moved to equivariant architectures (NequIP, MACE, SevenNet) and
 universal interatomic potentials (M3GNet, CHGNet, MatterSim), and by 2025–26 the
