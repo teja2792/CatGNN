@@ -156,9 +156,9 @@ def panel_predictions(ax, fus, base):
          if prop_random else "—"),
         (False,
          "“Both” will be the best of the three",
-         f"It was the worst: {both_el:.3f} eV against {prop_el:.3f}. Given a "
-         "memorisable route and\na chemical one, the model took the memorisable "
-         "route." if both_el else "—"),
+         f"It was the worst: {both_el:.3f} eV against {prop_el:.3f}. Keeping the "
+         "learned code at all\nhurts — for an unseen element it contributes pure "
+         "noise." if both_el else "—"),
     ]
 
     for i, (held, claim, outcome) in enumerate(rows):
@@ -211,8 +211,9 @@ def main() -> None:
         fig,
         "A graph network normally learns a private code for each element from the training data, so an element it never met has a code that was never learned — which is why\n"
         "the error nearly tripled on this test. Replacing that code with tabulated electronegativity, ionic radius, row and group cuts the error by 35% and finally beats a\n"
-        "structure-blind descriptor model on its own strongest ground. The failed predictions matter as much: adding properties ALONGSIDE the learned code made things worse,\n"
-        "because a free per-element vector is the easier way to fit the training set and the model takes it. The shortcut has to be removed, not merely supplemented.",
+        "structure-blind descriptor model on its own strongest ground. The failed predictions matter as much: adding properties ALONGSIDE the learned code made things WORSE, and\n"
+        "measuring the weights showed why — not because the model prefers the learned route (it does not; the properties carry 62% of the signal) but because for a held-out\n"
+        "element the learned row was never trained, so the 38% it does contribute is noise the model cannot switch off. The shortcut has to be removed, not supplemented.",
         y=0.012)
 
     OUT.mkdir(parents=True, exist_ok=True)

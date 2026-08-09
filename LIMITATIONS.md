@@ -203,18 +203,43 @@ Not a bug in the split — holding elements out is the entire point — but it m
 the Phase 5 numbers carry more run-to-run variance than the random-split numbers
 do, on top of the single-seed caveat in §10.
 
-## 14. Phase 5 improves the strict splits; only two of four were re-run
+## 14. A stated mechanism was refuted by its own diagnostic
 
-`properties` was run on the element-disjoint split (the one that motivated the
-phase) and the random split (to check nothing broke on the easy case). The
-formula-disjoint and chemsys-disjoint splits were **not** re-run, because each
-costs 35 minutes and the two endpoints were the informative ones.
+The README first explained Phase 5's `both` result as shortcut learning: given a
+free per-element code and real element properties, the model would lean on the
+code because it fits training data more easily, leaving the chemistry pathway
+underdeveloped.
 
-So the README's Phase 5 table is complete for the two splits it shows and silent
-about the middle two. It would be reasonable to expect intermediate improvements
-there; it has not been measured, and the table does not imply otherwise.
+`scripts/diagnose_fusion.py` measured it and found the reverse — the tabulated
+properties carry **62%** of the between-element signal, the learned codes 38%. The
+model did **not** prefer the shortcut, and the explanation was wrong.
 
-## 15. Single author, no independent replication
+The corrected mechanism is that a pathway does not need to dominate to do damage.
+For a held-out element the learned row was never trained, so its contribution is
+noise, and nothing lets the model disable that route only for the elements where
+it is meaningless.
+
+Two process notes, both uncomfortable and both worth keeping:
+
+- The *first* diagnostic was also badly designed. It tested whether held-out
+  embedding rows were "still at their random initialisation" by comparing row
+  **lengths** — 8.06 against 8.02, no difference. But a vector rotates without
+  changing length, and a 64-dimensional unit-normal row starts near √64 = 8
+  regardless. The statistic could not have detected the effect it was looking
+  for. Replaced with a test of whether the table encodes chemistry.
+- Both the refuted mechanism and the useless test are recorded in the script's
+  docstring rather than deleted, because a diagnostic that has only ever agreed
+  with the hypothesis it was written for is not evidence of anything.
+
+## 15. Phase 5 improves the strict splits; not all four were re-run at first
+
+`properties` was first run on the element-disjoint split (the one that motivated
+the phase) and the random split (to check nothing broke on the easy case). The
+formula-disjoint and chemsys-disjoint splits were added afterwards. Any table in
+this repository showing fewer than four splits for a Phase 5 variant is showing
+what was actually run, not a selection.
+
+## 16. Single author, no independent replication
 
 Everything here was built and checked by one person. The mitigations — assertions
 that fail loudly, figures regenerated from source data rather than hand-edited, CI on

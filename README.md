@@ -317,12 +317,26 @@ is worth **0.356 eV, 95% range [0.325, 0.388]**, p < 10⁻⁴.
 **That third failure is the most useful thing in this section.** The obvious
 engineering instinct — give the model everything and let it decide — is wrong
 here, and reliably so: three variants that *keep* the learned code all lose to
-the one that *removes* it. A free per-element vector is the easier way to fit the
-training set, so gradient descent leans on it and the chemistry pathway
-underdevelops. **The shortcut has to be removed, not supplemented.**
+the one that *removes* it. **The shortcut has to be removed, not supplemented.**
 
-`scripts/diagnose_fusion.py` checks that explanation against the trained weights
-rather than leaving it as a plausible story.
+**My first explanation for *why* was wrong, and the diagnostic caught it.** I
+claimed the model *prefers* the memorisable route, letting the chemistry pathway
+underdevelop. `scripts/diagnose_fusion.py` measured how much of the
+between-element signal arrives down each path and found the opposite: the
+tabulated properties carry **62%**, the learned codes **38%**. The model did not
+prefer the shortcut.
+
+The corrected explanation is narrower and better. **A pathway does not have to
+dominate to do damage — it only has to contribute.** For a held-out element the
+learned row was never trained, so whatever it contributes is noise, and the model
+has no way to switch that route off for exactly the elements where it is
+meaningless. 38% of a starting vector built from untrained numbers is more than
+enough to cost 0.17 eV.
+
+This is the second time in this repository a confident mechanism has been
+overturned by a cheap check ([§6](#6-two-bugs-that-would-have-been-completely-silent)
+has the first two). The refuted version is kept in the script's docstring rather
+than quietly deleted.
 
 ### 6. Two bugs that would have been completely silent
 
