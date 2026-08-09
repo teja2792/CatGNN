@@ -20,6 +20,7 @@ The bar this has to clear, from Phase 2 (`results/baselines.json`):
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import sys
 from pathlib import Path
@@ -192,7 +193,9 @@ def main() -> None:
                     help="time one real epoch and report what the budget buys")
     ap.add_argument("--target", default="band_gap")
     ap.add_argument("--split", default="random", choices=list(SCHEMES))
-    ap.add_argument("--all-splits", action="store_true")
+    ap.add_argument("--all-splits", action="store_true",
+                    help="all four in one process; on a tight-memory machine "
+                         "prefer one --split per process instead")
     ap.add_argument("--nonmetals", action="store_true", help="exclude metals (band gap)")
     ap.add_argument("--minutes", type=float, default=35.0)
     ap.add_argument("--batch-size", type=int, default=64)
@@ -222,7 +225,9 @@ def main() -> None:
 
     print("\nLoading cached graphs into memory...", flush=True)
     store = GraphStore()
-    print(f"  {len(store):,} crystals, {store.z.size:,} atoms, {store.src.size:,} edges")
+    mem = (store.z.nbytes + store.src.nbytes + store.dst.nbytes + store.dist.nbytes) / 1e6
+    print(f"  {len(store):,} crystals, {store.z.size:,} atoms, {store.src.size:,} edges"
+          f"  ({mem:.0f} MB)")
 
     splits = list(SCHEMES) if args.all_splits else [args.split]
     all_results = {}
@@ -254,12 +259,28 @@ def main() -> None:
         # Persist after every split, not once at the end. A 35-minute run whose
         # results file is written only after the loop is a 35-minute run you can
         # lose to a typo in a print statement.
+        #
+        # MERGE rather than overwrite, so each split can be run in its own
+        # process. That matters on a memory-constrained laptop: a fresh process
+        # per split returns every byte to the OS, which no amount of gc.collect()
+        # inside one long-lived process reliably does.
         RESULTS.mkdir(parents=True, exist_ok=True)
         _tag = f"cgcnn_{args.target}{'_nonmetals' if args.nonmetals else ''}"
         if args.smoke:
             _tag += "_smoke"
-        (RESULTS / f"{_tag}.json").write_text(json.dumps(all_results, indent=2),
-                                              encoding="utf-8")
+        _path = RESULTS / f"{_tag}.json"
+        _merged = {}
+        if _path.exists():
+            try:
+                _merged = json.loads(_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                pass
+        _merged.update(all_results)
+        _path.write_text(json.dumps(_merged, indent=2), encoding="utf-8")
+
+        # Release the model and its optimiser state before building the next one.
+        del model
+        gc.collect()
 
     RESULTS.mkdir(parents=True, exist_ok=True)
     tag = f"cgcnn_{args.target}{'_nonmetals' if args.nonmetals else ''}"
