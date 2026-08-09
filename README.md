@@ -21,32 +21,53 @@ that survives an honest test.
 
 ---
 
-## The whole project on one page
+## How it works, in three pictures
 
-![Process flow diagram](results/figures/fig0_pipeline.png)
+### 1. What happens to one material
 
-If you read flowsheets, you can read this. Feed enters on the left, two parallel
-treatment trains process it differently, both pass through the same quality
-check, then the fitting step, then product. **The one arrow that runs backwards
-is the point of the project.**
+![Data flow](results/figures/fig0_dataflow.png)
 
-The two trains are the experiment. The same 102,957 materials are described two
-ways — once by **recipe only** (192 numbers summarising the elements in the
-formula) and once by **the actual crystal** (every atom and every contact within
-8 Å). One is blind to structure by construction: rutile and anatase are both
-TiO₂, so they get byte-identical numbers from the recipe train. If structure
-matters, the second train must win. Measuring by how much, and where it stops
-winning, is the whole of Phases 1–5.
+A single real crystal, followed all the way from its database entry to a
+predicted number. Every array size shown is the size the code actually produces.
 
-The **quality check in the middle is the step most published work skips.** If you
-choose your test set at random, 42.6% of it shares a chemical formula with
-something the model trained on — so a good score partly measures recall, not
-prediction. The four gates get progressively stricter, ending at materials
-containing *elements* the model has never encountered. That last gate is where
-the graph network falls over, and the recycle loop is the fix.
+The important thing to notice is **step 5**: whatever the crystal was — 3 atoms or
+30 — it ends up as one fixed-length list of 64 numbers. Everything after that is
+ordinary regression. A graph network is best understood not as a predictor but as
+a **learned featuriser**: its job is to turn an irregular, variable-sized object
+into a fixed-length summary, and the actual prediction is the easy part.
 
-Every number on that diagram is read from the results files when the figure is
-built, so it cannot drift away from the runs it describes.
+### 2. What the network looks like
+
+![The GNN as a network](results/figures/fig10_gnn_as_a_network.png)
+
+The same crystal, drawn the way neural networks are usually drawn. The columns
+are **not** different layers of units — they are *the same five atoms*, redrawn
+after each round of message passing.
+
+That is the one idea worth taking away. In an ordinary neural network, every unit
+in one column connects to every unit in the next and the wiring means nothing.
+Here **a line exists only where two atoms are actually bonded**, so the network's
+wiring *is* the crystal's structure. Feed it a different crystal and you get a
+differently wired network. This is why the model can tell rutile from anatase and
+a formula-based model cannot.
+
+### 3. Where the four architectures differ
+
+![Message rules](results/figures/fig11_message_rules.png)
+
+All four networks agree on the recipe in picture 2. They differ in exactly one
+place: **how loudly each neighbour gets to speak.**
+
+This is also where a distinction the field is casual about becomes visible.
+CGCNN scores each bond on its own, so the weights need not add up to anything and
+every bond can be wide open at once — that is a **gate**. GATv2 forces an atom's
+weights to sum to one, so bonds compete for a fixed budget — that is
+**attention**. CGCNN's gate is routinely called attention in write-ups, which
+licenses reading a picture of gate values as "where the model looked". It does
+not support that reading, and this repository does not make that claim.
+
+The measured outcome is in [§4](#4-the-most-copied-idea-in-this-field-does-not-measurably-do-anything):
+deleting the gate entirely changes the error by 0.001 eV.
 
 ---
 
