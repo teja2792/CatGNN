@@ -51,9 +51,17 @@ up electronegativity and ionic radius, which exist for every element in the
 periodic table whether or not you have seen a compound containing it, so it
 degrades gracefully instead.
 
-The training curves make it visible: on the element-disjoint split, training loss
-keeps falling (0.56 → 0.26) while validation error *rises* (1.13 → 1.32). The
-model is busily memorising the elements it has.
+**You can watch it happen.**
+
+![Why the network fails on an unseen element](results/figures/fig8_element_generalisation.png)
+
+On the element-disjoint test, the model keeps getting better at the materials it
+is *learning from* (green, falling) while getting steadily **worse** at the ones
+containing unfamiliar elements (red, rising). It is spending its effort
+memorising the elements it has. Training longer actively hurts — the best it ever
+managed was at 5 minutes, and the remaining 15 minutes made it worse.
+
+The other three tests show the opposite: train longer, do better.
 
 | | Random → unseen element |
 |---|---|
@@ -148,6 +156,28 @@ written up in full below:
 Everything above **"Under the hood"** is written for a chemical or materials
 engineer. Here is the whole vocabulary you need:
 
+### How to read any number in this repository
+
+Every prediction error is a **mean absolute error in electron-volts** — the typical
+size of the model's mistake, in the property's own units. Lower is better. For
+context on band gap: 0.4 eV is roughly the difference between a material that
+absorbs blue light and one that absorbs green.
+
+Every result is reported **four times**, once per test set, because a model's
+score depends enormously on how you choose what to test it on:
+
+| Test set | The question it answers |
+|---|---|
+| **Similar materials** | How well does it do on more of the same? *(the usual default — and the most flattering)* |
+| **New compositions** | …on a chemical formula it has never seen? |
+| **New element combinations** | …on a combination like Li–Mn–Co–O it has never seen? |
+| **Elements never seen in training** | …on an element that was held out of training entirely? |
+
+If a paper reports only the first column, treat its number as an upper bound on
+what you would get in your own lab.
+
+### The vocabulary, in full
+
 | Term | What it means |
 |---|---|
 | **Graph** | A bonding diagram written down so a computer can read it. Dots and lines, nothing more exotic. |
@@ -160,6 +190,9 @@ engineer. Here is the whole vocabulary you need:
 | **MAE** | Mean absolute error — the typical size of the model's mistake, in the property's own units. "MAE 0.3 eV" means predictions are off by about 0.3 eV on average. |
 | **DFT** | Density functional theory, the quantum calculation that produced most of the numbers here. Calculated, not measured. |
 | **GNN** | Graph neural network — a model that learns from a graph. |
+| **CGCNN** | Crystal Graph Convolutional Neural Network — the specific GNN built here, from Xie & Grossman (2018). |
+| **Overfitting** | The model gets better at the examples it trains on while getting worse at new ones. It is memorising rather than learning. Figure 8 shows it happening. |
+| **Validation set** | Materials held aside during training, used to decide when to stop. Not the final test. |
 
 ---
 

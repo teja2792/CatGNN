@@ -31,6 +31,7 @@ FIGURES = {
     5: ("src.figures.fig_split_leakage", "Why a random split is not a fair test"),
     6: ("src.figures.fig_baselines", "The bar every neural network has to clear"),
     7: ("src.figures.fig_cgcnn", "Did the graph network beat the descriptors?"),
+    8: ("src.figures.fig_overfitting", "Why it fails on an unseen element"),
 }
 
 
