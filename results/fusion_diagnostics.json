@@ -1,14 +1,31 @@
 {
-  "q1": {
-    "n_seen": 90,
-    "n_unseen": 10,
-    "norm_seen": 8.059046745300293,
-    "norm_unseen": 8.021526336669922,
-    "ratio": 1.004677414894104
+  "properties_contrast": {
+    "similar": 0.8144269585609436,
+    "different": -0.22685450445860625,
+    "contrast": 1.04128146301955
   },
-  "q2": {
-    "spread_learned": 1.0587437152862549,
-    "spread_properties": 1.736663579940796,
-    "learned_share": 0.3787439909361261
+  "learned_contrast": {
+    "similar": 0.054043340310454366,
+    "different": -0.03250985722988844,
+    "contrast": 0.0865531975403428
+  },
+  "random_contrast": {
+    "contrast": 0.11461081952746631
+  },
+  "row_norms": {
+    "seen": 8.059046745300293,
+    "unseen": 8.021526336669922
+  },
+  "both_pathways": {
+    "the model trained on": {
+      "learned": 0.818124532699585,
+      "properties": 4.212389945983887,
+      "share": 0.16263237809300474
+    },
+    "HELD OUT of training": {
+      "learned": 0.7154974937438965,
+      "properties": 4.699965476989746,
+      "share": 0.13212120507712874
+    }
   }
 }

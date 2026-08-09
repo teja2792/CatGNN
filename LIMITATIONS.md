@@ -231,13 +231,17 @@ Two process notes, both uncomfortable and both worth keeping:
   docstring rather than deleted, because a diagnostic that has only ever agreed
   with the hypothesis it was written for is not evidence of anything.
 
-## 15. Phase 5 improves the strict splits; not all four were re-run at first
+## 15. Only the winning Phase 5 variant was run on all four splits
 
-`properties` was first run on the element-disjoint split (the one that motivated
-the phase) and the random split (to check nothing broke on the easy case). The
-formula-disjoint and chemsys-disjoint splits were added afterwards. Any table in
-this repository showing fewer than four splits for a Phase 5 variant is showing
-what was actually run, not a selection.
+`properties` has now been run on all four splits. The other two fusion variants —
+`both` and `both_comp` — were run on the **element-disjoint split only**, because
+that is the split their comparison is about and each additional run costs 35
+minutes.
+
+So the four-split table in README §5 is complete for the three approaches it
+shows, and the variant comparison beneath it is a single-split result. It would be
+reasonable to expect `both` to trail `properties` on the easier splits too, by a
+smaller margin; that has not been measured and the figure does not imply it.
 
 ## 16. Single author, no independent replication
 

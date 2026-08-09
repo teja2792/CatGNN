@@ -22,16 +22,30 @@ from matplotlib.patches import FancyBboxPatch
 
 from .style import (
     use_house_style, caption,
-    STRUCTURE, COMPOSITION, ACCENT, WARN, MUTED, INK,
+    COMPOSITION, ACCENT, WARN, MUTED, INK,
 )
 
 REPO = Path(__file__).resolve().parents[2]
 RESULTS = REPO / "results"
 OUT = RESULTS / "figures"
 
+SPLITS = ["random", "formula", "chemsys", "element"]
+
+# Questions, not jargon. "chemsys" means nothing to a reader who has not read
+# the code, and the whole point of the four splits is that each asks a different
+# question about what the model will face in practice.
+SPLIT_PLAIN = {
+    "random": "Materials like\nthe training set",
+    "formula": "A formula it has\nnever seen",
+    "chemsys": "An element combination\nit has never seen",
+    "element": "An ELEMENT it has\nnever seen",
+}
+
 # Fallbacks are the measured values, so the figure builds on a fresh clone.
-BASE = {"cgcnn_random": 0.4137, "cgcnn_element": 1.0194,
-        "desc_random": 0.511, "desc_element": 0.694}
+BASE = {"cgcnn_random": 0.4137, "cgcnn_formula": 0.4437,
+        "cgcnn_chemsys": 0.4851, "cgcnn_element": 1.0194,
+        "desc_random": 0.5113, "desc_formula": 0.5465,
+        "desc_chemsys": 0.6135, "desc_element": 0.6942}
 
 LABEL = {
     "cgcnn": ("Learned code per element", "the Phase 3 baseline"),
@@ -53,18 +67,17 @@ def load():
     p = RESULTS / "cgcnn_band_gap_nonmetals.json"
     if p.exists():
         d = json.loads(p.read_text(encoding="utf-8"))
-        if "random" in d:
-            base["cgcnn_random"] = d["random"]["test"]["mae"]
-        if "element" in d:
-            base["cgcnn_element"] = d["element"]["test"]["mae"]
+        for sp in SPLITS:
+            if sp in d:
+                base[f"cgcnn_{sp}"] = d[sp]["test"]["mae"]
     p = RESULTS / "baselines.json"
     if p.exists():
         rows = json.loads(p.read_text(encoding="utf-8"))["results"]
-        for split in ("random", "element"):
+        for sp in SPLITS:
             m = [r["mae"] for r in rows if r.get("target") == "band_gap_nonmetals"
-                 and r.get("split") == split and r.get("model") != "mean"]
+                 and r.get("split") == sp and r.get("model") != "mean"]
             if m:
-                base[f"desc_{split}"] = min(m)
+                base[f"desc_{sp}"] = min(m)
 
     sig = {}
     p = RESULTS / "fusion_significance.json"
@@ -73,8 +86,51 @@ def load():
     return fus, base, sig
 
 
-def panel_element(ax, fus, base, sig):
-    """The split the whole phase exists for."""
+def panel_all_splits(ax, fus, base):
+    """The complete result: three approaches, four tests of increasing strictness."""
+    x = np.arange(len(SPLITS), dtype=float)
+    w = 0.26
+
+    desc = [base[f"desc_{sp}"] for sp in SPLITS]
+    learned = [base[f"cgcnn_{sp}"] for sp in SPLITS]
+    props = [fus.get("cgcnn_properties", {}).get(sp, {}).get("test", {}).get("mae")
+             for sp in SPLITS]
+
+    ax.bar(x - w, desc, w, color=COMPOSITION, alpha=0.88, edgecolor="white",
+           label="Chemistry only — no structure at all", zorder=3)
+    ax.bar(x, learned, w, color=WARN, alpha=0.88, edgecolor="white",
+           label="Graph network, learned element codes  (Phase 3)", zorder=3)
+    ax.bar(x + w, [p if p else 0 for p in props], w, color=ACCENT, alpha=0.9,
+           edgecolor="white", label="Graph network + the periodic table  (Phase 5)",
+           zorder=3)
+
+    for xi, (a, b, c) in enumerate(zip(desc, learned, props)):
+        for dx, v, col in ((-w, a, COMPOSITION), (0, b, WARN), (w, c, ACCENT)):
+            if v:
+                ax.text(xi + dx, v + 0.022, f"{v:.3f}", fontsize=8.2,
+                        fontweight="bold", color=col, ha="center", va="bottom",
+                        zorder=6)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([SPLIT_PLAIN[sp] for sp in SPLITS], fontsize=8.8)
+    ax.set_ylabel("Band-gap error  (eV, lower is better)")
+    ax.set_ylim(0, 1.18)
+    ax.set_xlabel("How the test materials were chosen  —  stricter to the right")
+    ax.set_title("A.  The complete result: four tests, three approaches",
+                 loc="left", pad=10)
+    ax.grid(True, axis="y", alpha=0.45)
+    ax.set_axisbelow(True)
+    ax.legend(fontsize=8.6, loc="upper left", framealpha=0.95)
+
+    ax.annotate("this is the collapse\nPhase 5 set out to fix",
+                xy=(3.0, learned[3]), xytext=(2.02, 1.03),
+                fontsize=8.6, fontweight="bold", color=WARN, ha="left", va="center",
+                arrowprops=dict(arrowstyle="->", color=WARN, lw=1.5,
+                                connectionstyle="arc3,rad=-0.2"))
+
+
+def panel_variants(ax, fus, base, sig):
+    """Why removing the learned code beats supplementing it."""
     order = ["cgcnn", "cgcnn_both", "cgcnn_both_comp", "cgcnn_properties"]
     vals, names = [], []
     for k in order:
@@ -84,50 +140,32 @@ def panel_element(ax, fus, base, sig):
             vals.append(v)
             names.append(k)
 
-    # Labels above the bars, never on them: text on a coloured bar is unreadable
-    # in half the palette and unreadable in all of it once screenshotted.
     y = np.arange(len(names))[::-1].astype(float)
     for yi, k, v in zip(y, names, vals):
         title, sub = LABEL[k]
-        ax.text(0.010, yi + 0.46, title, fontsize=9.6, fontweight="bold",
+        ax.text(0.010, yi + 0.44, title, fontsize=9.0, fontweight="bold",
                 color=INK, ha="left", va="center", zorder=6)
-        ax.text(0.010, yi + 0.26, sub, fontsize=8.2, color=MUTED,
+        ax.text(0.010, yi + 0.25, sub, fontsize=7.8, color=MUTED,
                 ha="left", va="center", zorder=6)
-        ax.barh(yi - 0.10, v, height=0.32, color=COLOUR[k], alpha=0.88,
+        ax.barh(yi - 0.10, v, height=0.30, color=COLOUR[k], alpha=0.88,
                 edgecolor="white", zorder=3)
-        ax.text(v + 0.018, yi - 0.10, f"{v:.3f} eV", fontsize=10.4,
-                fontweight="bold", color=COLOUR[k], ha="left", va="center",
-                zorder=6)
+        ax.text(v + 0.02, yi - 0.10, f"{v:.3f}", fontsize=9.6, fontweight="bold",
+                color=COLOUR[k], ha="left", va="center", zorder=6)
 
-    # The bar the graph network has to clear: chemistry with no structure at all.
-    ax.axvline(base["desc_element"], color=STRUCTURE, ls="--", lw=1.8, zorder=5)
-    ax.text(base["desc_element"] + 0.03, y[0] + 0.90,
-            f"descriptors alone, no structure  ({base['desc_element']:.3f} eV)",
-            fontsize=8.4, fontweight="bold", color=STRUCTURE,
+    ax.axvline(base["desc_element"], color=COMPOSITION, ls="--", lw=1.7, zorder=5)
+    ax.text(base["desc_element"] + 0.03, y[0] + 0.86, "chemistry only",
+            fontsize=8.0, fontweight="bold", color=COMPOSITION,
             ha="left", va="center", zorder=7,
-            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.95))
+            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.95))
 
     ax.set_yticks([])
-    ax.set_ylim(-0.75, len(names) + 0.20)
+    ax.set_ylim(-0.55, len(names) + 0.15)
     ax.set_xlim(0, 1.30)
-    ax.set_xlabel("Band-gap error on materials containing ELEMENTS never seen in "
-                  "training  (eV, lower is better)")
-    ax.set_title("A.  The test that broke the graph network in Phase 3",
+    ax.set_xlabel("Error on the unseen-element test  (eV)")
+    ax.set_title("B.  Removing the learned code beats supplementing it",
                  loc="left", pad=10)
     ax.grid(True, axis="x", alpha=0.45)
     ax.set_axisbelow(True)
-
-    if sig:
-        pair = next((p for p in sig.get("pairs", [])
-                     if {p["a"], p["b"]} == {"cgcnn", "cgcnn_properties"}), None)
-        if pair:
-            d = abs(pair["delta_mae"])
-            lo, hi = sorted(abs(x) for x in (pair["ci_low"], pair["ci_high"]))
-            ax.text(1.28, -0.52,
-                    f"deleting the learned code is worth {d:.3f} eV  "
-                    f"[95% range {lo:.3f} – {hi:.3f}]",
-                    fontsize=8.4, fontweight="bold", color=ACCENT,
-                    ha="right", va="center")
 
 
 def panel_predictions(ax, fus, base):
@@ -135,7 +173,7 @@ def panel_predictions(ax, fus, base):
     ax.set_xlim(0, 10)
     ax.set_ylim(0, 10)
     ax.axis("off")
-    ax.set_title("B.  Three predictions, written down before the runs",
+    ax.set_title("C.  Three predictions, written down before the runs",
                  loc="left", pad=10)
 
     prop_random = fus.get("cgcnn_properties", {}).get("random", {}) \
@@ -194,26 +232,28 @@ def main() -> None:
             "results/fusion_band_gap_nonmetals.json missing. Run:\n"
             "    python scripts/train_fusion.py --atoms properties --split element --nonmetals")
 
-    fig, axes = plt.subplots(1, 2, figsize=(15.6, 6.9),
-                             gridspec_kw={"width_ratios": [1.06, 1.0]})
-    fig.subplots_adjust(left=0.045, right=0.975, top=0.79, bottom=0.24, wspace=0.16)
+    fig = plt.figure(figsize=(15.6, 10.4))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.15, 1.0],
+                          left=0.055, right=0.975, top=0.845, bottom=0.135,
+                          hspace=0.46, wspace=0.17)
 
-    panel_element(axes[0], fus, base, sig)
-    panel_predictions(axes[1], fus, base)
+    panel_all_splits(fig.add_subplot(gs[0, :]), fus, base)
+    panel_variants(fig.add_subplot(gs[1, 0]), fus, base, sig)
+    panel_predictions(fig.add_subplot(gs[1, 1]), fus, base)
 
-    fig.suptitle("Give the network the periodic table and the collapse mostly goes away",
-                 fontsize=15.5, fontweight="bold", y=0.995, x=0.006, ha="left")
-    fig.text(0.006, 0.938,
-             "Same architecture, same budget, same test set. The only thing that changes is what numbers each atom starts with.",
-             fontsize=9.4, color=MUTED, ha="left", va="top")
+    fig.suptitle("Give the network the periodic table and it wins every test",
+                 fontsize=16.0, fontweight="bold", y=0.995, x=0.006, ha="left")
+    fig.text(0.006, 0.948,
+             "Same architecture, same 35-minute budget, same test sets. The only thing that changes is what numbers each atom starts with.",
+             fontsize=9.5, color=MUTED, ha="left", va="top")
 
     caption(
         fig,
-        "A graph network normally learns a private code for each element from the training data, so an element it never met has a code that was never learned — which is why\n"
-        "the error nearly tripled on this test. Replacing that code with tabulated electronegativity, ionic radius, row and group cuts the error by 35% and finally beats a\n"
-        "structure-blind descriptor model on its own strongest ground. The failed predictions matter as much: adding properties ALONGSIDE the learned code made things WORSE, and\n"
-        "measuring the weights showed why — not because the model prefers the learned route (it does not; the properties carry 62% of the signal) but because for a held-out\n"
-        "element the learned row was never trained, so the 38% it does contribute is noise the model cannot switch off. The shortcut has to be removed, not supplemented.",
+        "A graph network normally learns a private code for each element from training data. Measured, that code carries almost no chemical structure — chemically alike\n"
+        "elements score +0.09 on a similarity contrast where the tabulated properties score +1.04, and random numbers score +0.12. So an element the model never met has a\n"
+        "code that means nothing, which is why the error nearly tripled on the strictest test. Replacing the code with tabulated electronegativity, ionic radius, row and\n"
+        "group improves every one of the four tests and turns a 47% loss against chemistry-only into a 4% win. Keeping the code alongside the properties is worse than\n"
+        "removing it: for a held-out element its rows were never trained, and the model cannot switch that route off just for the elements where it is meaningless.",
         y=0.012)
 
     OUT.mkdir(parents=True, exist_ok=True)
@@ -221,6 +261,11 @@ def main() -> None:
     fig.savefig(path)
     plt.close(fig)
     print(f"wrote {path}")
+    for sp in SPLITS:
+        v = fus.get("cgcnn_properties", {}).get(sp, {}).get("test", {}).get("mae")
+        if v:
+            print(f"  {sp:<9}properties {v:.4f}   learned {base[f'cgcnn_{sp}']:.4f}   "
+                  f"descriptors {base[f'desc_{sp}']:.4f}")
 
 
 if __name__ == "__main__":

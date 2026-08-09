@@ -111,6 +111,92 @@ def contrast(vectors, z_of, held_z):
     return s, d, s - d
 
 
+def ablate_learned_rows(torch, held_z):
+    """Replace the untrained rows and re-score. No retraining.
+
+    B measures that 13-16% of an atom's starting vector comes down the learned
+    route, and that for a held-out element those numbers were never trained. That
+    is consistent with 'both' losing to 'properties' -- it does not show it.
+
+    This shows it, or fails to. Take the trained 'both' model exactly as it is and
+    overwrite the embedding rows of the ten held-out elements with the MEAN of the
+    trained rows: the pathway still runs, at the same scale, but it no longer
+    injects per-element noise for elements the model never saw. That is precisely
+    what the properties table does for an element it does not cover.
+
+    If the error falls towards 'properties', untrained rows were the problem. If
+    it does not move, the explanation in B is wrong too and 'both' loses for some
+    other reason.
+    """
+    from src.data import graph_build as gb
+
+    if not gb.existing_chunk_indices():
+        return None
+    ck_path = MODELS / "cgcnn_both" / f"{TAG}.pt"
+    if not ck_path.exists():
+        return None
+
+    import numpy as _np
+
+    from src.models.dataset import GraphStore
+    from src.models.fusion import FusedGNN, FusionConfig
+    from src.models.train import TrainConfig, evaluate, select_indices
+    from src.data.splits import load_split
+
+    print("\n  C  Causal check: swap the untrained rows for the average trained row")
+    print("     (no retraining — the same weights, scored twice)")
+
+    ck = torch.load(ck_path, map_location="cpu", weights_only=False)
+    cfg = FusionConfig(**{k: v for k, v in ck["model_config"].items()
+                          if k in FusionConfig.__dataclass_fields__})
+    model = FusedGNN(cfg)
+    model.load_state_dict(ck["state_dict"])
+    model.eval()
+
+    store = GraphStore()
+    tcfg = TrainConfig(target="band_gap", split="element", exclude_metals=True)
+    tr, _, te = select_indices(store, load_split("element"), tcfg)
+
+    from src.models.dataset import Normaliser
+    norm = Normaliser(store.y["band_gap"][tr])
+
+    before = evaluate(model, store, te, "band_gap", norm, torch)["mae"]
+
+    with torch.no_grad():
+        emb = model.featuriser.embedding.weight
+        seen = [z for z in range(1, emb.shape[0])
+                if z not in held_z and _np.any(emb[z].numpy() != 0)]
+        mean_row = emb[seen].mean(dim=0)
+        for z in sorted(held_z):
+            emb[z] = mean_row
+
+    after = evaluate(model, store, te, "band_gap", norm, torch)["mae"]
+
+    print(f"\n     {'as trained':<44}{before:>9.4f} eV")
+    print(f"     {'held-out rows replaced by the average':<44}{after:>9.4f} eV")
+    print(f"     {'change':<44}{after - before:>+9.4f} eV")
+    ref = RESULTS / "fusion_band_gap_nonmetals.json"
+    if ref.exists():
+        pv = json.loads(ref.read_text(encoding="utf-8")).get(
+            "cgcnn_properties", {}).get("element", {}).get("test", {}).get("mae")
+        if pv:
+            print(f"\n     for reference, 'properties' — no learned route at all:"
+                  f"{pv:>9.4f} eV")
+
+    if after < before - 0.01:
+        print("\n     → removing the untrained noise recovers most of the gap without")
+        print("       touching a single trained weight. The learned route was hurting")
+        print("       precisely because its rows for unseen elements are meaningless.")
+    elif after > before + 0.01:
+        print("\n     → it got WORSE, so the untrained rows were not the problem.")
+    else:
+        print("\n     → essentially no change. The explanation in B is not supported;")
+        print("       'both' loses for some other reason and this is still open.")
+
+    return {"mae_as_trained": float(before), "mae_rows_replaced": float(after),
+            "delta": float(after - before)}
+
+
 def main() -> None:
     torch = require_torch()
     out: dict = {}
@@ -230,6 +316,13 @@ def main() -> None:
             print("       'properties'. The earlier claim — that the model prefers the")
             print("       memorisable route — is not supported: the properties carry the")
             print("       larger share of the between-element signal.")
+
+    # ------------------------------------------------------------------
+    # C. The causal test. B is a measurement, not a demonstration.
+    # ------------------------------------------------------------------
+    ablation = ablate_learned_rows(torch, held_z)
+    if ablation:
+        out["ablation"] = ablation
 
     RESULTS.mkdir(parents=True, exist_ok=True)
     path = RESULTS / "fusion_diagnostics.json"

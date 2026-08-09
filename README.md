@@ -170,9 +170,9 @@ chemistry outside its training set.
 
 It also points directly at a fix: give the network the looked-up element
 properties *as node features* instead of letting it learn a private code. **That
-fix was built and run — see [§5](#5-the-fix-worked--and-two-of-my-three-predictions-were-wrong).
-It cuts the 1.019 eV down to 0.663 eV**, which finally beats the descriptor model
-on the one test the descriptors had been winning.
+fix was built and run — see [§5](#5-the-fix-give-the-network-the-periodic-table-and-it-wins-every-test).
+It cuts 1.019 eV down to 0.663 eV and improves all four splits**, turning the
+−47% loss into a +4% win.
 
 > Three of the four runs stopped on the time budget with validation still
 > falling, so those are **lower bounds**. The element-disjoint run stopped on
@@ -277,66 +277,76 @@ other, while the gap between a random split and an unseen-element split is
 **0.6 eV** — ten times larger. The problem is what the model knows about
 elements, not how it moves information between them.
 
-### 5. The fix worked — and two of my three predictions were wrong
+### 5. The fix: give the network the periodic table, and it wins every test
 
 ![Phase 5 fusion](results/figures/fig12_fusion.png)
 
 §0 diagnosed the collapse: the network learns a *private code* for each element
 from training data, so an element it never met has a code that was never learned.
-Phase 5 tested that by deleting the learned code and giving each atom its
-**tabulated properties instead** — electronegativity, ionic radius, row, group,
-valence count. Those exist for every element in the periodic table whether or not
-you have ever seen a compound of it.
+Phase 5 deleted the learned code and gave each atom its **tabulated properties
+instead** — electronegativity, ionic radius, row, group, valence count. Those
+exist for every element in the periodic table whether or not you have ever seen a
+compound of it.
 
-Same architecture, same budget, same test set. The only change is what numbers
-each atom starts with.
+Same architecture, same 35-minute budget, same test sets. The only change is what
+numbers each atom starts with. **All four splits, now complete:**
 
-| What each atom starts with | Unseen-element error | |
-|---|---|---|
-| A learned code (Phase 3) | 1.019 eV | the collapse |
-| Learned code **+** properties | 0.836 eV | |
-| …and the 192 descriptors too | 0.745 eV | |
-| **Properties only, no learned code** | **0.663 eV** | **−35%** |
-| *Descriptors alone, no structure at all* | *0.694 eV* | *the bar to beat* |
+| Test set | Chemistry only | Graph net, learned codes | **Graph net + periodic table** |
+|---|---|---|---|
+| Materials like the training set | 0.511 | 0.414 | **0.393** |
+| A formula it has never seen | 0.547 | 0.444 | **0.404** |
+| An element combination it has never seen | 0.613 | 0.485 | **0.447** |
+| **An ELEMENT it has never seen** | 0.694 | *1.019* | **0.663** |
 
-**The graph network now beats a structure-blind model on its own strongest
-ground.** Paired bootstrap on the 3,666 test materials: deleting the learned code
-is worth **0.356 eV, 95% range [0.325, 0.388]**, p < 10⁻⁴.
+**It improves every single test, and the −47% loss becomes a +4% win.** Paired
+bootstrap on the 3,666 unseen-element materials: deleting the learned code is
+worth **0.356 eV, 95% range [0.325, 0.388]**, p < 10⁻⁴.
 
-**Three predictions were written into the script before any run. One held.**
+#### Why the learned code was worthless — measured, not asserted
 
-- ✅ *"The unseen-element error will improve a lot."* It did — 1.019 → 0.663 eV.
+The obvious question is *what was that learned per-element code actually storing?*
+`scripts/diagnose_fusion.py` answers it with a test whose answer does not depend
+on this repository being right: **do chemically similar elements end up with
+similar vectors?** Cl and Br should be close; Cl and Na should not.
+
+| Element table | Alike pairs | Unalike pairs | **Contrast** |
+|---|---|---|---|
+| Tabulated properties (Phase 5) | +0.814 | −0.227 | **+1.041** |
+| Learned codes (Phase 3), trained | +0.054 | −0.033 | **+0.087** |
+| *Random numbers, for comparison* | *+0.098* | *−0.016* | *+0.115* |
+
+**The trained element table contains no more chemical structure than random
+numbers do.** It is a set of arbitrary per-element labels, not chemistry. That is
+the whole story in one row: an arbitrary label for an element you have never seen
+carries no information at all, whereas an electronegativity does.
+
+#### Three predictions were written down before the runs. One held.
+
+- ✅ *"The unseen-element error will improve a lot."* 1.019 → 0.663 eV.
 - ❌ *"The random-split error will get slightly worse."* It got **better**:
   0.414 → 0.393 eV. I expected 31 fixed properties to be less expressive than 64
-  free numbers per element where the model has seen everything. They weren't. The
-  periodic table helps even when nothing is missing.
+  free numbers where the model has seen everything. Given the table above, that
+  was backwards — the free numbers never became expressive in the first place.
 - ❌ *"'Both' will be the best of the three."* It was the **worst** fusion
-  variant: 0.836 eV against 0.663 eV. Adding the 192 descriptors on top
-  (0.745 eV) recovered some of that but never caught plain properties.
+  variant, 0.836 eV against 0.663 eV.
 
-**That third failure is the most useful thing in this section.** The obvious
-engineering instinct — give the model everything and let it decide — is wrong
-here, and reliably so: three variants that *keep* the learned code all lose to
-the one that *removes* it. **The shortcut has to be removed, not supplemented.**
+**And my explanation for that third failure was also wrong.** I claimed the model
+*prefers* the memorisable route. Measured, the tabulated properties carry the
+larger share of the between-element signal — the model did not prefer the
+shortcut. The corrected account is narrower: a pathway does not have to dominate
+to do damage. For a held-out element the learned row was never trained, so
+whatever it contributes is noise, and nothing lets the model switch that route off
+for exactly the elements where it is meaningless.
 
-**My first explanation for *why* was wrong, and the diagnostic caught it.** I
-claimed the model *prefers* the memorisable route, letting the chemistry pathway
-underdevelop. `scripts/diagnose_fusion.py` measured how much of the
-between-element signal arrives down each path and found the opposite: the
-tabulated properties carry **62%**, the learned codes **38%**. The model did not
-prefer the shortcut.
+That correction is itself now under test — `diagnose_fusion.py` replaces the
+untrained rows with the average trained row and re-scores the same weights, which
+either recovers the gap or refutes the explanation.
 
-The corrected explanation is narrower and better. **A pathway does not have to
-dominate to do damage — it only has to contribute.** For a held-out element the
-learned row was never trained, so whatever it contributes is noise, and the model
-has no way to switch that route off for exactly the elements where it is
-meaningless. 38% of a starting vector built from untrained numbers is more than
-enough to cost 0.17 eV.
-
-This is the second time in this repository a confident mechanism has been
-overturned by a cheap check ([§6](#6-two-bugs-that-would-have-been-completely-silent)
-has the first two). The refuted version is kept in the script's docstring rather
-than quietly deleted.
+> **What a chemical engineer should take from this.** Structure is worth ~20%
+> over chemistry, but only if the network is *also* given the chemistry. A graph
+> network left to invent its own element representation learns labels, not
+> periodic trends, and falls apart the moment it meets an element outside its
+> training set. Handing it the periodic table costs nothing and fixes that.
 
 ### 6. Two bugs that would have been completely silent
 
@@ -353,10 +363,12 @@ written up in full below:
 
 > **Status: Phases 0–5 of 10 built.** Dataset, graphs, leakage-aware splits,
 > descriptor baselines, CGCNN from scratch, a controlled four-architecture
-> comparison, and descriptor–GNN fusion. The central question the repository was
-> built to ask now has an answer: structure beats chemistry by ~20%, collapses
-> when the chemistry is unfamiliar, and **the collapse is fixed by giving the
-> network the periodic table rather than by changing the architecture.**
+> comparison, and descriptor–GNN fusion — all four splits run for each headline
+> claim. The question the repository was built to ask now has an answer:
+> **structure beats chemistry by ~20%, but only if the network is also handed the
+> chemistry.** Left to invent its own element representation it learns arbitrary
+> labels — measurably no more chemical structure than random numbers — and falls
+> apart on unfamiliar elements. Architecture was not the lever; the input was.
 > Phase 6 (interpretability) and Phase 7 (catalysis targets) are next.
 
 ---
