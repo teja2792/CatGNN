@@ -282,12 +282,15 @@ def main() -> None:
         del model
         gc.collect()
 
-    RESULTS.mkdir(parents=True, exist_ok=True)
+    # NOTE: the results file is written inside the loop above, merging with
+    # whatever previous processes left there. It is deliberately NOT rewritten
+    # here -- an unconditional write at this point would clobber the merge with
+    # only this process's splits, which is exactly what happened the first time
+    # and silently reduced a four-split file to one.
     tag = f"cgcnn_{args.target}{'_nonmetals' if args.nonmetals else ''}"
     if args.smoke:
         tag += "_smoke"
     out = RESULTS / f"{tag}.json"
-    out.write_text(json.dumps(all_results, indent=2), encoding="utf-8")
 
     # The comparison that matters: did it beat the descriptors?
     base_path = RESULTS / "baselines.json"

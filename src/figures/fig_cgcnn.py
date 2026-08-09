@@ -94,6 +94,15 @@ def panel_comparison(ax, target: str, runs: dict):
     ax.set_xticks(x)
     ax.set_xticklabels([SPLIT_LABEL[s] for s in splits], fontsize=9)
     ax.set_ylabel(f"Mean absolute error  ({UNITS.get(target, '')})")
+
+    # Where the story turns. Marking it beats hoping the reader spots it.
+    losers = [i for i, (b, g) in enumerate(zip(base, gnn))
+              if np.isfinite(b) and g > b]
+    if losers and len(losers) < len(splits):
+        ax.axvspan(min(losers) - 0.5, len(splits) - 0.5, color=WARN, alpha=0.06, zorder=0)
+        ax.text(min(losers) - 0.42, ax.get_ylim()[1] * 0.955,
+                "unseen chemistry:\nthe GNN collapses,\nthe descriptors do not",
+                fontsize=8.6, color=WARN, va="top", ha="left", fontweight="bold")
     ax.set_ylim(0, np.nanmax(base + gnn) * 1.35)
     ax.grid(True, axis="y", alpha=0.5, zorder=0)
     ax.set_axisbelow(True)
@@ -132,24 +141,30 @@ def main() -> None:
             "    python scripts/train_cgcnn.py --all-splits"
         )
 
-    target = ("band_gap" if "band_gap" in all_runs
-              else sorted(all_runs)[0])
+    # Prefer whichever target has the most splits, and among ties prefer the
+    # non-metal one. The pooled band gap is 59% metals sitting at exactly zero,
+    # so it flatters every model; the non-metal subset is where a band gap is a
+    # real quantity, and it is the number this repo reports as the headline.
+    target = max(all_runs, key=lambda t: (len(all_runs[t]), "nonmetals" in t))
     runs = all_runs[target]
 
     fig, axes = plt.subplots(1, 2, figsize=(13.6, 6.0),
                              gridspec_kw={"width_ratios": [1.1, 1]})
-    fig.subplots_adjust(bottom=0.22, top=0.85, wspace=0.26)
+    fig.subplots_adjust(bottom=0.22, top=0.85, wspace=0.30)
 
     panel_comparison(axes[0], target, runs)
-    axes[0].set_title(f"A.  CGCNN vs chemistry descriptors — {target}",
-                      loc="left", pad=10)
+    nice = {"band_gap_nonmetals": "band gap, non-metals",
+            "band_gap": "band gap, all materials"}.get(target, target)
+    axes[0].set_title(f"A.  {nice}", loc="left", pad=10)
     axes[0].legend(loc="upper left", fontsize=8.4)
     panel_curves(axes[1], runs)
 
     wins = sum(1 for s in runs
                if baseline_best(target, s)
                and runs[s]["test"]["mae"] < baseline_best(target, s)["mae"])
-    verdict = (f"CGCNN wins on {wins} of {len(runs)} splits"
+    verdict = (f"CGCNN wins {wins} of {len(runs)} splits — and loses the one that matters most"
+               if 0 < wins < len(runs)
+               else f"CGCNN wins on {wins} of {len(runs)} splits"
                if wins else "the descriptors win on every split")
 
     fig.suptitle(f"Does learning from structure beat looking up chemistry?  —  {verdict}",
@@ -160,7 +175,8 @@ def main() -> None:
         fig,
         f"Both sides evaluated on identical test sets. CGCNN trained under a fixed {budget}-minute CPU budget per split, so the comparison reflects what\n"
         "a laptop can actually deliver rather than what unlimited compute could. Percentages above the bars are the change in error: green means the graph\n"
-        "network won, red means the descriptors did. A stricter split is a different question, not simply a harder one.",
+        "network won, red means the descriptors did. The last split holds out whole ELEMENTS, so the model meets chemistry it has never seen -- and a\n"
+        "learned atom embedding has nothing to say about an element it was never trained on, while a looked-up electronegativity still does.",
         y=0.045,
     )
 

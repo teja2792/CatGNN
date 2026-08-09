@@ -2,7 +2,7 @@
 
 **Does knowing a material's *structure* predict its properties better than knowing its *chemistry* — and can the two be combined?**
 
-![tests](https://img.shields.io/badge/tests-114%20passing-2f8f5b)
+![tests](https://img.shields.io/badge/tests-121%20passing-2f8f5b)
 ![data](https://img.shields.io/badge/crystals-102%2C957-1f6f8b)
 ![atoms](https://img.shields.io/badge/atoms-1.42M-1f6f8b)
 ![edges](https://img.shields.io/badge/graph%20edges-16.9M-1f6f8b)
@@ -25,6 +25,52 @@ that survives an honest test.
 
 Everything below is measured on **all 102,957 crystals**, not a sample, on one
 laptop CPU. Reproduce it with the commands in [§7](#7-running-it-yourself).
+
+### 0. The headline: a graph network wins — until it meets a new element
+
+![CGCNN vs descriptors](results/figures/fig7_cgcnn_vs_baselines.png)
+
+CGCNN, written from scratch and trained under a fixed 35-minute CPU budget,
+against the best chemistry-descriptor model on identical test sets. Band gap,
+non-metals only:
+
+| Test set | CGCNN | Best descriptor model | |
+|---|---|---|---|
+| Random split | **0.414 eV** | 0.511 eV | **+19%** |
+| A formula it has never seen | **0.444 eV** | 0.547 eV | **+19%** |
+| A chemical system it has never seen | **0.485 eV** | 0.613 eV | **+21%** |
+| **An element it has never seen** | **1.019 eV** | **0.694 eV** | **−47%** |
+
+Learning from structure beats looking up chemistry by about 20% — consistently,
+across three increasingly strict tests. Then it **collapses on the fourth**.
+
+**Why, and it is not subtle.** A GNN learns a numerical fingerprint for each
+element from the training data. Meet an element that was never in training and
+that fingerprint is meaningless — the model is guessing. A descriptor model looks
+up electronegativity and ionic radius, which exist for every element in the
+periodic table whether or not you have seen a compound containing it, so it
+degrades gracefully instead.
+
+The training curves make it visible: on the element-disjoint split, training loss
+keeps falling (0.56 → 0.26) while validation error *rises* (1.13 → 1.32). The
+model is busily memorising the elements it has.
+
+| | Random → unseen element |
+|---|---|
+| CGCNN | 0.414 → 1.019 eV  (**+146%**) |
+| Descriptors | 0.511 → 0.694 eV  (**+36%**) |
+
+**This is the single most useful number in the repository.** It says: a published
+GNN benchmark score tells you very little about how the model will behave on
+chemistry outside its training set — and it points directly at the fix, which is
+Phase 5. Give the network the looked-up element properties *as node features*
+instead of a learned lookup table, and it should degrade like the descriptors do
+while keeping the structural advantage. That is now a hypothesis with evidence
+behind it rather than a plan.
+
+> Three of the four runs stopped on the time budget with validation still
+> falling, so those are **lower bounds**. The element-disjoint run stopped on
+> early stopping — it had genuinely stopped improving.
 
 ### 1. Chemistry alone is a much higher bar than people assume
 
@@ -90,9 +136,10 @@ written up in full below:
   on *network response order*. A fixed preference rule was **refuted by evidence**:
   the summary endpoint agrees with r2SCAN for 14% of TiO₂ entries.
 
-> **Status: Phases 0–2 of 10 built.** Dataset, graphs, leakage-aware splits and
-> the full descriptor baseline are done. **No neural network trained yet** — that
-> is Phase 3. Everything on this page is reproducible from this repository today.
+> **Status: Phases 0–3 of 10 built.** Dataset, graphs, leakage-aware splits,
+> descriptor baselines, and CGCNN from scratch. Phase 4 adds MPNN, MEGNet, ALIGNN
+> and GATv2 under the same budget; Phase 5 tests whether feeding the chemistry
+> descriptors *into* the network fixes the element-generalisation collapse.
 
 ---
 
@@ -346,7 +393,7 @@ pip install "numpy>=1.24" "pandas>=2.0" "matplotlib>=3.7" "pytest>=7.4"
 
 python scripts/benchmark_hardware.py    # measure YOUR machine, writes COMPUTE_BUDGET.md
 python scripts/make_figures.py --only 1 --only 2 --only 3 --only 4
-pytest -q                               # 114 correctness tests
+pytest -q                               # 121 correctness tests
 ```
 
 To rebuild the dataset and results from scratch (~35 minutes, needs a free
@@ -363,6 +410,13 @@ python scripts/build_graphs.py       # ~3 min: 16.9M edges, ~85 MB
 python scripts/build_graphs.py --verify
 python scripts/make_splits.py        # four splits + leakage report
 python scripts/run_baselines.py      # the bar the GNNs have to clear
+
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+python scripts/train_cgcnn.py --selftest          # 1 min: verify the layer
+python scripts/train_cgcnn.py --split random --nonmetals    # 35 min each
+python scripts/train_cgcnn.py --split formula --nonmetals
+python scripts/train_cgcnn.py --split chemsys --nonmetals
+python scripts/train_cgcnn.py --split element --nonmetals
 python scripts/make_figures.py       # rebuild every figure from source data
 ```
 
@@ -390,7 +444,7 @@ writes a dataset-size budget to [`COMPUTE_BUDGET.md`](COMPUTE_BUDGET.md).
 | **Graphs** | 8 Å cutoff, ≤12 neighbours, periodic, 1.42M nodes / 16.9M edges |
 | **Descriptors** | 192 composition features (Magpie-style over 31 element properties) + 13 cheap structural |
 | **Baselines** | Median / Ridge / Random Forest / HistGradientBoosting |
-| **Architectures** | CGCNN (from scratch), MPNN, MEGNet, ALIGNN, GATv2 — Phase 3+ |
+| **Architectures** | CGCNN (from scratch, done), MPNN, MEGNet, ALIGNN, GATv2 — Phase 4 |
 | **Splits** | Random, formula-disjoint, system-disjoint, element-disjoint |
 | **Protocol** | Identical wall-clock budget per model, ≥3 seeds, error bars |
 | **Hardware** | Ryzen 5 laptop, CPU only |
