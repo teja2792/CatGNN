@@ -2,7 +2,7 @@
 
 **Does knowing a material's *structure* predict its properties better than knowing its *chemistry* — and can the two be combined?**
 
-![tests](https://img.shields.io/badge/tests-125%20passing-2f8f5b)
+![tests](https://img.shields.io/badge/tests-130%20passing-2f8f5b)
 ![data](https://img.shields.io/badge/crystals-102%2C957-1f6f8b)
 ![atoms](https://img.shields.io/badge/atoms-1.42M-1f6f8b)
 ![edges](https://img.shields.io/badge/graph%20edges-16.9M-1f6f8b)
@@ -18,6 +18,35 @@ contacts between them, as a graph — and tests them head to head against models
 that only see the chemical formula. Every result is reported against **four
 train/test splits of increasing strictness**, so the number you read is the one
 that survives an honest test.
+
+---
+
+## The whole project on one page
+
+![Process flow diagram](results/figures/fig0_pipeline.png)
+
+If you read flowsheets, you can read this. Feed enters on the left, two parallel
+treatment trains process it differently, both pass through the same quality
+check, then the fitting step, then product. **The one arrow that runs backwards
+is the point of the project.**
+
+The two trains are the experiment. The same 102,957 materials are described two
+ways — once by **recipe only** (192 numbers summarising the elements in the
+formula) and once by **the actual crystal** (every atom and every contact within
+8 Å). One is blind to structure by construction: rutile and anatase are both
+TiO₂, so they get byte-identical numbers from the recipe train. If structure
+matters, the second train must win. Measuring by how much, and where it stops
+winning, is the whole of Phases 1–5.
+
+The **quality check in the middle is the step most published work skips.** If you
+choose your test set at random, 42.6% of it shares a chemical formula with
+something the model trained on — so a good score partly measures recall, not
+prediction. The four gates get progressively stricter, ending at materials
+containing *elements* the model has never encountered. That last gate is where
+the graph network falls over, and the recycle loop is the fix.
+
+Every number on that diagram is read from the results files when the figure is
+built, so it cannot drift away from the runs it describes.
 
 ---
 
@@ -192,11 +221,12 @@ written up in full below:
   on *network response order*. A fixed preference rule was **refuted by evidence**:
   the summary endpoint agrees with r2SCAN for 14% of TiO₂ entries.
 
-> **Status: Phases 0–4 of 10 built.** Dataset, graphs, leakage-aware splits,
-> descriptor baselines, CGCNN from scratch, and a controlled four-architecture
-> comparison. Phase 5 tests whether feeding the chemistry descriptors *into* the
-> network fixes the element-generalisation collapse — which §4 above says is a
-> far bigger lever than swapping architectures.
+> **Status: Phases 0–4 of 10 built, Phase 5 in progress.** Dataset, graphs,
+> leakage-aware splits, descriptor baselines, CGCNN from scratch, and a
+> controlled four-architecture comparison are done. Phase 5 — feeding the
+> periodic table into the network as atom features — is implemented and tested;
+> the runs are pending. §4 above is why it is the next thing rather than a
+> fifth architecture.
 
 ---
 
@@ -475,7 +505,7 @@ pip install "numpy>=1.24" "pandas>=2.0" "matplotlib>=3.7" "pytest>=7.4"
 
 python scripts/benchmark_hardware.py    # measure YOUR machine, writes COMPUTE_BUDGET.md
 python scripts/make_figures.py --only 1 --only 2 --only 3 --only 4
-pytest -q                               # 125 correctness tests
+pytest -q                               # 130 correctness tests
 ```
 
 To rebuild the dataset and results from scratch (~35 minutes, needs a free
@@ -505,6 +535,11 @@ python scripts/train_arch.py --arch mpnn   --split random --nonmetals   # 35 min
 python scripts/train_arch.py --arch megnet --split random --nonmetals
 python scripts/train_arch.py --arch gatv2  --split random --nonmetals
 python scripts/compare_architectures.py    # seconds: is any gap bigger than the noise?
+
+python scripts/train_fusion.py --selftest                        # 1 min
+python scripts/train_fusion.py --atoms properties --split element --nonmetals
+python scripts/train_fusion.py --atoms both       --split element --nonmetals
+python scripts/train_fusion.py --atoms properties --split random  --nonmetals
 
 python scripts/make_figures.py       # rebuild every figure from source data
 ```

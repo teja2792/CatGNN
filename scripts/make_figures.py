@@ -24,6 +24,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 FIGURES = {
+    0: ("src.figures.fig_pipeline", "The whole project as a process flow diagram"),
     1: ("src.figures.fig_polymorph_problem", "Why composition alone is not enough"),
     2: ("src.figures.fig_crystal_to_graph", "How a crystal becomes a graph"),
     3: ("src.figures.fig_data_provenance", "Where every number comes from"),

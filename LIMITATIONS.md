@@ -18,9 +18,9 @@ One Ryzen 5, no GPU. Consequences, all real:
 - **Fixed compute budget per model.** Every architecture gets the same wall-clock
   allowance. This makes the comparison *fair*, but it means no model is trained to
   convergence, and a model that converges slowly is penalised.
-- **ALIGNN is handicapped.** Its line-graph convolution costs roughly 3–8× CGCNN per
-  epoch, so under an equal-time budget it sees far fewer epochs. Any ALIGNN result
-  here is a lower bound on what ALIGNN can do.
+- **A slow architecture is penalised.** Under an equal-time budget, a model with an
+  expensive convolution simply sees fewer epochs. This is why ALIGNN was dropped
+  from the comparison entirely (§11) rather than reported with an asterisk.
 
 **These numbers will not match published leaderboards, and are not meant to.** Where a
 published number is quoted for scale, the gap and its cause are stated next to it.
@@ -42,14 +42,24 @@ Random train/test splits on materials databases **leak**. Near-duplicate polymor
 and same-composition entries end up on both sides, so the test set is not really unseen
 and the reported error is optimistic.
 
-Four split schemes are therefore run and reported side by side: random,
-composition-disjoint, structure-similarity-disjoint, and Matbench's official folds.
-Expect the random split to look best. That gap is a result, not an inconvenience —
-and any repo reporting only a random split should be read with that in mind.
+Four split schemes are therefore run and reported side by side: **random**,
+**formula-disjoint** (no test formula appears in training), **chemical-system
+disjoint** (no test element *combination* appears in training), and
+**element-disjoint** (some elements are held out of training altogether).
+
+Measured, not assumed: 42.6% of a random test set shares a formula with something
+in training. The random split looks best because it is the easiest, and that gap
+is a result rather than an inconvenience. Any repository reporting only a random
+split should be read with that in mind.
+
+Matbench's official folds are *not* used. They would make these numbers comparable
+to a public leaderboard, which would be a genuine benefit; they are not used
+because the element-disjoint split — the one that produced the most useful result
+here — is not among them.
 
 ## 4. Models are old by design, and that is a limitation
 
-CGCNN (2018), MEGNet (2019) and ALIGNN (2021) are here because they are the clearest
+CGCNN (2018), MEGNet (2019) and GATv2 (2022) are here because they are the clearest
 architectures to learn from and implement, not because they are current.
 
 The field has moved to equivariant architectures (NequIP, MACE, SevenNet) and
@@ -60,9 +70,11 @@ about what the best current method can do.
 
 ## 5. "Attention" means something specific here
 
-CGCNN, MEGNet and ALIGNN have **no attention mechanism** — CGCNN uses a sigmoid gate,
-ALIGNN uses edge gating, MEGNet uses a global state vector. These are routinely
-mislabelled as attention.
+CGCNN and MEGNet have **no attention mechanism** — CGCNN uses a sigmoid gate scoring
+each bond independently, MEGNet uses a global state vector. Both are routinely
+mislabelled as attention. Only a softmax *across* an atom's neighbours produces
+weights that sum to one and can be read as "the model looked here rather than
+there"; this is asserted in a test rather than assumed.
 
 Where this repo shows attention maps, they come from the GATv2 model, which actually
 has attention. For the others it shows gate activations and integrated-gradient
@@ -140,7 +152,31 @@ shared clock it would report an architecture verdict that is really a speed
 verdict. MEGNet was included because its overhead is mild enough to be worth the
 caveat; ALIGNN's is not.
 
-## 12. Single author, no independent replication
+## 12. Phase 5 gives the network knowledge the earlier comparison withheld
+
+Phase 5 replaces the network's learned per-element vector with tabulated element
+properties. It is worth being explicit that this **changes what the comparison
+means**, and in a direction that is fairer rather than less fair.
+
+Up to Phase 4 the descriptor baselines had the periodic table and the graph
+networks did not. The descriptors read electronegativity and ionic radius out of
+a published table; the networks had to infer an equivalent from training data
+alone. So "structure beats chemistry by 20%" was measured with the structural
+model handicapped, and "the network collapses on unseen elements" was partly a
+statement about that handicap.
+
+What Phase 5 does **not** do is leak anything. The element table is generated from
+pymatgen and committed to the repository; it contains no target values, no
+information about any specific material, and nothing derived from the training
+labels. An element's electronegativity is the same number whether or not the
+dataset contains a single compound of it.
+
+What it **does** do is make the graph networks and the descriptor baselines share
+an input that only the baselines had before. A reader comparing the Phase 3 and
+Phase 5 numbers should read the difference as "what the periodic table is worth
+to a graph network", not as a like-for-like architecture improvement.
+
+## 13. Single author, no independent replication
 
 Everything here was built and checked by one person. The mitigations — assertions
 that fail loudly, figures regenerated from source data rather than hand-edited, CI on

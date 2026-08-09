@@ -43,7 +43,7 @@ PHASES = [
     ("Models", 4, "Controlled architecture comparison",
      "MPNN, MEGNet, GATv2 under one identical budget", DONE),
     ("The question", 5, "Descriptor–GNN fusion",
-     "Does chemistry added to structure help? Where, and by how much?", ACTIVE),
+     "Tabulated element properties as atom features, instead of a learned code", ACTIVE),
     ("The question", 6, "Interpretability, done correctly",
      "Real attention, attribution, and a randomisation sanity check", TODO),
     ("The question", 7, "Catalysis targets",
