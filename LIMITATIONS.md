@@ -83,13 +83,32 @@ attributions, and calls them that.
 ## 6. Interpretability results are not explanations of physics
 
 Attribution methods explain *the model*, not the material. A model can attribute
-importance to the chemically "right" atoms while having learned the relationship for
-the wrong reasons.
+importance to the chemically "right" properties while having learned the
+relationship for the wrong reasons, and the attribution would look identical.
 
-Phase 6 therefore includes a randomisation control: retrain on shuffled labels and
-re-run the attributions. If they still look plausible, they were never explaining
-anything. Interpretability results are reported alongside that control, and any case
-where methods disagreed is reported rather than quietly dropped.
+Phase 6 is reported against two controls — an untrained model, and one trained to
+convergence on shuffled labels (R² = −0.04, so it genuinely learned nothing).
+Rank correlation with the trained profile is +0.08 and +0.34, so neither
+reproduces it. That is the strongest statement the design supports: **the ranking
+describes this model rather than the attribution method**. It is not evidence
+about band-gap physics.
+
+Three specific caveats on the Phase 6 numbers:
+
+- **Raw importance is partly input geometry.** The shuffled control also ranks
+  electronegativity first. Only the control-corrected column ("what training
+  changed") should be read as being about the model, and the README leads with
+  that rather than the raw ranking.
+- **The enrichment ratio has an arbitrary floor.** Dividing by a control value
+  near zero would explode, so a floor of 0.02 is added to the denominator. That
+  caps the largest achievable enrichment and makes the exact multiple — 13.8×
+  for electron affinity — sensitive to the floor. The *ordering* is not.
+- **One seed, one split, 2,000 crystals.** Attribution was run on the random
+  split only, on a sample of the test set, from a single trained model. The
+  headline ordering is stable enough to report; specific multiples are not.
+
+My first version of this check also used invented thresholds and called an
+ordinary result "borderline" — see §16.
 
 ## 7. The activity descriptor amplifies error
 
@@ -250,7 +269,28 @@ shows, and the variant comparison beneath it is a single-split result. It would 
 reasonable to expect `both` to trail `properties` on the easier splits too, by a
 smaller margin; that has not been measured and the figure does not imply it.
 
-## 16. Single author, no independent replication
+## 16. A sanity check with a guessed threshold is not a sanity check
+
+The Phase 6 control originally compared importance profiles by cosine similarity
+with hand-picked thresholds: above 0.9 suspicious, below 0.7 fine. It reported
+the shuffled-label control at **0.785 — "borderline"**, which reads as a
+half-failed sanity check.
+
+It was nothing of the sort. Importance profiles are **non-negative by
+construction**, and two *unrelated* non-negative vectors of length 31 score a
+cosine of **0.753** on average (0.654–0.840 for 90% of draws). Both observed
+values sit inside that band. The thresholds had been chosen on the intuition that
+unrelated vectors score near zero — true for signed vectors, false here — so the
+check was mis-calibrated in the direction that manufactures an alarming number.
+
+Fixed by computing the null by sampling rather than assuming it, and by reporting
+Spearman rank correlation alongside, whose null is zero regardless of sign.
+
+Recorded because the failure mode is general and easy to repeat: a threshold that
+feels right, on a statistic whose null distribution was never checked, in a test
+whose entire purpose is to be harder to pass than the thing it guards.
+
+## 17. Single author, no independent replication
 
 Everything here was built and checked by one person. The mitigations — assertions
 that fail loudly, figures regenerated from source data rather than hand-edited, CI on

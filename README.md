@@ -363,7 +363,68 @@ that worked.
 > periodic trends, and falls apart the moment it meets an element outside its
 > training set. Handing it the periodic table costs nothing and fixes that.
 
-### 6. Two bugs that would have been completely silent
+### 6. So which chemistry did it actually use?
+
+![What chemistry](results/figures/fig14_what_chemistry.png)
+
+§5 showed the tabulated properties help. It did not say **which** ones — and "the
+model uses chemistry" is not a finding until you can name the chemistry.
+
+That question is only askable because of §5. When each atom started from a
+learned 64-number code there was nothing to attribute a prediction *to*: the
+numbers had no names and, as the diagnostic showed, no chemical structure either.
+Now every atom starts from 31 quantities with names and units.
+
+**The naive answer is misleading, and that is the interesting part.** Raw
+attribution puts electronegativity first — which looks like a triumph, until you
+run the same procedure on a model trained on **shuffled** band gaps and it puts
+electronegativity first too. Part of that ranking is the geometry of the property
+table, not anything the model learned.
+
+Dividing by the control leaves only what training changed:
+
+| Property | vs. a model that learned nothing |
+|---|---|
+| **Electron affinity** | **13.8×** |
+| Mendeleev number | 4.6× |
+| is a lanthanide | 4.2× |
+| is an actinide | 3.1× |
+| is a transition metal | 2.4× |
+| … | |
+| atomic number | 0.4× |
+| **atomic mass** | **0.3×** |
+
+**Electron affinity is the quantity that sets where a material's conduction band
+sits** — it is about as close to the physical cause of a band gap as a
+single-element property gets, and it is the one training changed most. Next is
+the **Mendeleev number**, a hand-built ordering of the periodic table by chemical
+similarity, then the f-block and transition-metal flags.
+
+**And atomic mass was pushed *down* to 0.3×.** Mass correlates with almost
+everything in the periodic table and causes none of it. A model taking shortcuts
+would have leaned on it. This one did the opposite.
+
+By family: **electronic 41%**, block 21%, size 17%, position 11%, and thermal
+last at 10% — melting and boiling point being exactly the proxies a shortcut
+would exploit.
+
+> **The controls are the contribution here, not the ranking.** Attribution
+> methods produce confident-looking rankings from models that learned nothing at
+> all ([Adebayo et al., NeurIPS 2018](https://arxiv.org/abs/1810.03292)). So the
+> same procedure was run on an untrained model and on one trained to convergence
+> on shuffled labels — which reached R² = −0.04, i.e. it genuinely learned
+> nothing. Rank correlation with the trained model: **+0.08** and **+0.34**.
+> Neither reproduces it.
+
+**One methodological error worth recording.** The first run reported the shuffled
+control at cosine 0.785 and called it "borderline". It is not — two *unrelated*
+non-negative profiles of 31 numbers score 0.75 on average. The threshold had been
+chosen by intuition on the assumption that unrelated vectors score near zero,
+which is true for signed vectors and false for importance profiles. The check now
+computes its null by sampling and reports Spearman alongside, whose null really
+is zero. **A sanity check whose threshold is guessed is not a sanity check.**
+
+### 7. Two bugs that would have been completely silent
 
 Both were caught by tests that check physics, not code paths, and both are
 written up in full below:

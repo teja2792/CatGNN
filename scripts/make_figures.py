@@ -38,6 +38,7 @@ FIGURES = {
     11: ("src.figures.fig_message_rules", "How each architecture weights a bond"),
     12: ("src.figures.fig_fusion", "Does the periodic table fix the collapse?"),
     13: ("src.figures.fig_what_is_an_ev", "What an error of 0.4 eV actually means"),
+    14: ("src.figures.fig_attribution", "Which chemistry the model actually used"),
 }
 
 

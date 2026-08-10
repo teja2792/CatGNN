@@ -45,7 +45,7 @@ PHASES = [
     ("The question", 5, "Descriptor–GNN fusion",
      "Tabulated element properties as atom features, instead of a learned code", DONE),
     ("The question", 6, "Interpretability, done correctly",
-     "Real attention, attribution, and a randomisation sanity check", TODO),
+     "Attribution to named element properties, against two null controls", DONE),
     ("The question", 7, "Catalysis targets",
      "Adsorption energy, then a derived activity descriptor", TODO),
     ("Surface", 8, "Interactive app",
