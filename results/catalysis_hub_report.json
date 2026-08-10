@@ -1,0 +1,82 @@
+{
+  "rows": 3554,
+  "adsorbates": {
+    "CO": 3554
+  },
+  "metal_atom_adsorptions": 0,
+  "energy": {
+    "mean": -1.3547499452307268,
+    "median": -1.3760958350000152,
+    "sd": 1.5597943596239148,
+    "min": -13.727556350000043,
+    "max": 32.02057805999999
+  },
+  "functionals": {
+    "RPBE": 203,
+    "BEEF-vdW": 80,
+    "BEEF": 168,
+    "PBE": 2262,
+    "MS2": 9,
+    "VCML-rVV10": 9,
+    "SCAN-rVV10": 9,
+    "r2SCAN": 9,
+    "MCML": 9,
+    "SCAN": 9,
+    "MCML-rVV10": 6,
+    "PBE_D3": 694,
+    "RPBE_-0.413VSHE": 28,
+    "beef-vdW": 4,
+    "PBE+U": 2,
+    "BEEF-vdW_-0.51VSHE": 3,
+    "BEEF-vdW_-0.23VSHE": 3,
+    "BEEF-vdW_-0.73VSHE": 12,
+    "BEEF-vdW_-0.70VSHE": 3,
+    "BEEF-vdW_0.11VSHE": 3,
+    "BEEF-vdW_-0.42VSHE": 13,
+    "BEEF-vdW_-0.57VSHE": 13,
+    "BEEF-vdW_-1.01VSHE": 3
+  },
+  "publications": 21,
+  "largest_publication_share": 0.6339335959482274,
+  "distinct_surface_facet_adsorbate": 674,
+  "repeated_combinations": 251,
+  "mislabelled_by_query": {},
+  "ceilings": {
+    "surface": {
+      "groups": 547,
+      "floor_ev": 0.921500893124749,
+      "r2_ceiling": 0.43557111860620856,
+      "degenerate": false
+    },
+    "surface_facet": {
+      "groups": 673,
+      "floor_ev": 0.8060683272285202,
+      "r2_ceiling": 0.5681216626011639,
+      "degenerate": false
+    },
+    "slab_facet": {
+      "groups": 596,
+      "floor_ev": 0.9978058323966779,
+      "r2_ceiling": 0.3382258734036343,
+      "degenerate": false
+    },
+    "site_index": {
+      "groups": 3429,
+      "floor_ev": 0.03860373481523873,
+      "r2_ceiling": 0.9990094501091848,
+      "degenerate": true
+    },
+    "publication": {
+      "groups": 21,
+      "floor_ev": 1.167309280616645,
+      "r2_ceiling": 0.09428912179102578,
+      "degenerate": false
+    },
+    "functional": {
+      "groups": 23,
+      "floor_ev": 1.1729731133530648,
+      "r2_ceiling": 0.08547870625625165,
+      "degenerate": false
+    }
+  }
+}
