@@ -168,6 +168,13 @@ BUDGET_FILE = REPO / "data" / "cache" / "catalysis_hub_budget.json"
 # introspection, one sample, two row-cap probes, one structure probe.
 MAX_PROBE_REQUESTS = 5
 
+OUT_DIR = RAW / "catalysis_hub"
+ROWS_FILE = OUT_DIR / "adsorption.jsonl"
+MANIFEST = OUT_DIR / "manifest.json"
+# Alongside the budget ledger: both describe progress, not data, and
+# neither should be lost by clearing data/raw.
+STATE_FILE = REPO / "data" / "cache" / "catalysis_hub_state.json"
+
 
 def post(query: str, timeout: int = 60, key: str | None = None) -> dict:
     """One GraphQL request. urllib only, so there is no new dependency.
@@ -231,7 +238,7 @@ def show_budget() -> None:
 # model is actually wanted for. Chosen on chemistry, before counting how many
 # rows each has, so the dataset is not defined by whatever happened to be
 # plentiful.
-ADSORBATES = ["CO", "H", "O", "OH", "N", "C", "CH3", "NO", "S", "OOH"]
+from src.data.adsorption import ADSORBATES  # noqa: E402
 
 
 def plan() -> None:
@@ -514,6 +521,10 @@ def main() -> None:
                     help="can the server filter? decides the whole request budget")
     ap.add_argument("--plan", action="store_true",
                     help="count the clean single-adsorbate rows per adsorbate")
+    ap.add_argument("--adsorbates", nargs="*", default=None,
+                    help=f"which to fetch (default: all of {' '.join(ADSORBATES)})")
+    ap.add_argument("--page", type=int, default=200,
+                    help="rows per request; the server caps this at 200")
     args = ap.parse_args()
 
     if args.budget:
@@ -532,11 +543,152 @@ def main() -> None:
         probe()
         return
 
-    print("\nThe downloader is not written yet — deliberately.\n\n"
-          "Run --probe first and paste the output. Two numbers from it decide the\n"
-          "whole design and cannot be guessed: the per-request row cap, and what a\n"
-          "structure costs to fetch. With 500 requests a day and suspension for\n"
-          "exceeding it, those set what Phase 7 can cover.\n")
+    download(adsorbates=args.adsorbates or ADSORBATES, page=args.page)
+
+
+def download(adsorbates, page: int = 200) -> None:
+    """Page the wanted rows, keep only the clean ones, and survive being stopped.
+
+    Resumable by design rather than as a nicety. The budget is 450 requests a day
+    and a full pass may need more, so a run that could not continue where it left
+    off would spend the next day re-fetching what it already had.
+
+    State is per-adsorbate: a cursor, whether it finished, and running counts.
+    Rows are appended to JSONL as they arrive, so an interrupted run keeps
+    everything it had already paid for.
+    """
+    from src.config import get_catalysis_hub_key, key_fingerprint
+    from src.data.adsorption import (is_metal_atom_adsorption, which_adsorbate)
+    from src.data.rate_limit import DailyBudgetExhausted, RateLimiter
+
+    key = get_catalysis_hub_key()
+    limiter = RateLimiter(BUDGET_FILE)
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    state = json.loads(STATE_FILE.read_text(encoding="utf-8")) if STATE_FILE.exists() else {}
+    cursors = state.setdefault("cursors", {})
+    finished = set(state.setdefault("finished", []))
+    counts = state.setdefault("counts", {})
+
+    # Rows already on disk, so a resumed run cannot duplicate them. Reading the
+    # file is cheaper than re-fetching and is the only source of truth.
+    seen_ids = set()
+    if ROWS_FILE.exists():
+        with ROWS_FILE.open(encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    seen_ids.add(json.loads(line)["id"])
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+    print(f"\n{'=' * 76}\n  Catalysis-Hub: single-adsorbate chemisorption energies"
+          f"\n{'=' * 76}")
+    print(f"\n  key {key_fingerprint(key)}   {limiter.report()}")
+    print(f"  {len(seen_ids):,} rows already on disk"
+          f"   finished: {sorted(finished) or 'none'}")
+    print(f"\n  {'adsorbate':<10}{'fetched':>9}{'kept':>8}{'rejected':>10}"
+          f"{'requests':>10}   state")
+    print("  " + "-" * 62)
+
+    fields = ("id Equation reactants products reactionEnergy surfaceComposition "
+              "chemicalComposition facet sites coverages dftCode dftFunctional "
+              "pubId")
+    stopped_early = False
+
+    with ROWS_FILE.open("a", encoding="utf-8") as out:
+        for ads in adsorbates:
+            if ads in finished:
+                print(f"  {ads:<10}{'':>9}{counts.get(ads, 0):>8}{'':>10}{'':>10}"
+                      f"   already complete")
+                continue
+
+            fetched = kept = rejected = requests = 0
+            cursor = cursors.get(ads)
+
+            while True:
+                try:
+                    limiter.acquire()
+                except DailyBudgetExhausted as e:
+                    stopped_early = True
+                    print(f"  {ads:<10}{fetched:>9}{kept:>8}{rejected:>10}"
+                          f"{requests:>10}   budget reached")
+                    print(f"\n{e}\n")
+                    break
+
+                after = f', after: "{cursor}"' if cursor else ""
+                q = ('{ reactions(first: %d%s, reactants: "~%sgas", '
+                     'products: "~%sstar") { pageInfo { hasNextPage endCursor } '
+                     'edges { node { %s } } } }'
+                     % (page, after, ads, ads, fields))
+                requests += 1
+                node = (post(q, key=key).get("data") or {}).get("reactions")
+                if not node:
+                    print(f"  {ads:<10}{fetched:>9}{kept:>8}{rejected:>10}"
+                          f"{requests:>10}   API returned nothing")
+                    break
+
+                for edge in node.get("edges", []):
+                    row = edge["node"]
+                    fetched += 1
+
+                    # The label comes from the ROW. A query asking for "H" returns
+                    # rhodium depositions, and trusting the query would file them
+                    # under hydrogen.
+                    found = which_adsorbate(row.get("reactants"), row.get("products"))
+                    if found is None or row.get("id") in seen_ids:
+                        rejected += 1
+                        continue
+
+                    row["adsorbate"] = found
+                    row["is_metal_atom_adsorption"] = is_metal_atom_adsorption(found)
+                    row["fetched_under"] = ads
+                    out.write(json.dumps(row) + "\n")
+                    seen_ids.add(row["id"])
+                    kept += 1
+
+                info = node.get("pageInfo") or {}
+                cursor = info.get("endCursor")
+                cursors[ads] = cursor
+                if not info.get("hasNextPage"):
+                    finished.add(ads)
+                    break
+
+            out.flush()
+            counts[ads] = counts.get(ads, 0) + kept
+            state["cursors"], state["finished"] = cursors, sorted(finished)
+            state["counts"] = counts
+            STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+            if not stopped_early:
+                print(f"  {ads:<10}{fetched:>9}{kept:>8}{rejected:>10}"
+                      f"{requests:>10}   "
+                      f"{'complete' if ads in finished else 'partial'}")
+            else:
+                break
+
+    total = len(seen_ids)
+    print(f"\n  {total:,} clean single-adsorbate rows in "
+          f"{ROWS_FILE.relative_to(REPO)}")
+    print(f"  {limiter.report()}")
+
+    MANIFEST.write_text(json.dumps({
+        "source": API,
+        "key_fingerprint": key_fingerprint(key),
+        "rows": total,
+        "adsorbates_requested": list(adsorbates),
+        "finished": sorted(finished),
+        "selection": "src/data/adsorption.is_single_adsorbate — exact match on "
+                     "parsed JSON, NOT the server's substring filter",
+        "note": "The ~ filter is a case-insensitive substring match and returns "
+                "rhodium for hydrogen, zinc for nitrogen, ethanol for hydroxyl. "
+                "It narrows the download; it decides nothing.",
+    }, indent=2), encoding="utf-8")
+
+    if stopped_early:
+        print("\n  Stopped on the daily budget. Re-run tomorrow — it resumes "
+              "from the saved cursors.\n")
+    else:
+        print("\n  Done. Next: measure what fraction have usable structures.\n")
 
 
 if __name__ == "__main__":
