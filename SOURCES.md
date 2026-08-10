@@ -181,3 +181,21 @@ The reference band gaps for Ge, Si, GaAs, GaP, CdS, TiO2, ZnO and diamond used i
 figure 13 are standard room-temperature **experimental** values from
 semiconductor physics texts, and are labelled as experimental on the figure
 precisely because the dataset holds DFT values, which are smaller.
+
+## Phase 7: surface reaction and adsorption energies
+
+- Winther, K. T., Hoffmann, M. J., Boes, J. R., Mamun, O., Bajdich, M. &
+  Bligaard, T. *Catalysis-Hub.org, an open electronic structure database for
+  surface reactions.* **Scientific Data 6, 75 (2019)**.
+  https://www.nature.com/articles/s41597-019-0081-y
+
+  Open GraphQL API at https://api.catalysis-hub.org/graphql, no key required.
+  Holds DFT surface reaction and chemisorption energies together with the surface
+  geometries, which is what makes graph construction possible rather than just
+  composition featurisation.
+
+**OC20 (Open Catalyst 2020) is deliberately not used.** It is far larger and
+would be the better dataset on any machine with room for it. It is also hundreds
+of gigabytes, which is out of scope for a project that runs on one laptop CPU —
+the same constraint that rules out the GPU-scale architectures in LIMITATIONS §4.
+Recorded as a limitation rather than presented as a choice.
