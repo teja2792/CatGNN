@@ -24,6 +24,17 @@ So this module is deliberately paranoid about the second one:
                 is stricter than needed; if they use a rolling window, it is
                 exactly right. Guessing midnight and being wrong is a ban.
 
+                DO NOT "OPTIMISE" THIS INTO CALENDAR-DAY ACCOUNTING. The tempting
+                move is to notice that local midnight is minutes away, switch to
+                counting per calendar day, and collect a second 450 immediately.
+                It requires believing (a) that their reset is calendar-based
+                rather than rolling, and (b) that it follows the client's
+                timezone rather than the server's. Neither has been tested here,
+                and both have to hold. The upside is saving a day; the downside
+                is an account that cannot be recovered by retrying. A rolling
+                window costs at most one day of waiting and is correct either
+                way.
+
   IT KEEPS HEADROOM.  It stops at 90% by default. The ledger cannot see requests
                 made by anything other than this code -- the web console, a
                 notebook, a colleague sharing the key -- so budgeting to exactly
