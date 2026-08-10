@@ -45,7 +45,7 @@
     "surface": {
       "groups": 547,
       "floor_ev": 0.921500893124749,
-      "r2_ceiling": 0.43557111860620856,
+      "r2_ceiling": 0.43557111860620845,
       "degenerate": false
     },
     "surface_facet": {
@@ -56,8 +56,8 @@
     },
     "slab_facet": {
       "groups": 596,
-      "floor_ev": 0.9978058323966779,
-      "r2_ceiling": 0.3382258734036343,
+      "floor_ev": 0.9978058323966781,
+      "r2_ceiling": 0.33822587340363386,
       "degenerate": false
     },
     "site_index": {

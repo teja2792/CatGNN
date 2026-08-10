@@ -241,6 +241,78 @@ def show_budget() -> None:
 from src.data.adsorption import ADSORBATES  # noqa: E402
 
 
+def probe_structures() -> None:
+    """What does asking for geometries cost, in requests?
+
+    This is now the question the phase turns on. The inspection put a ceiling of
+    R2 = 0.57 on any model that knows only the surface and facet: 43% of the
+    variance in CO binding is WHERE on the surface the molecule sits, and the
+    `sites` column records that only as an opaque index (site1 ... site47) that
+    carries nothing usable and does not transfer between surfaces.
+
+    So unlike band gap -- where structure was worth 2-3% over composition and the
+    phase would have survived without it -- here geometry is the target's dominant
+    variable. Without it there is no Phase 7 worth doing, only a composition
+    baseline stuck at 0.81 eV.
+
+    Three requests: one page without structures, one with, one larger with. The
+    comparison gives the real rows-per-request and therefore the real cost of the
+    3,554 rows already downloaded.
+    """
+    from src.config import get_catalysis_hub_key
+    from src.data.rate_limit import RateLimiter
+
+    key = get_catalysis_hub_key()
+    limiter = RateLimiter(BUDGET_FILE)
+    print(f"\n{'=' * 76}\n  What does fetching geometries cost?\n{'=' * 76}")
+    print(f"\n  {limiter.report()}   (this probe uses 3)")
+
+    print(f"\n  {'query':<44}{'asked':>7}{'got':>6}{'kB':>9}")
+    print("  " + "-" * 66)
+
+    trials = [
+        ("metadata only", 200, "id Equation reactionEnergy"),
+        ("+ systems (Formula, energy)", 200,
+         "id reactionEnergy systems { Formula energy }"),
+        ("+ systems with InputFile (the geometry)", 20,
+         'id reactionEnergy systems { Formula energy InputFile(format: "json") }'),
+    ]
+    results = []
+    for label, want, fields in trials:
+        limiter.acquire()
+        r = post('{ reactions(first: %d, reactants: "~COgas", products: "~COstar") '
+                 '{ edges { node { %s } } } }' % (want, fields), key=key)
+        node = (r.get("data") or {}).get("reactions")
+        if not node:
+            print(f"  {label:<44}{want:>7}{'error':>6}")
+            print("    " + json.dumps(r)[:300])
+            continue
+        got = len(node.get("edges", []))
+        kb = len(json.dumps(r)) / 1024
+        print(f"  {label:<44}{want:>7}{got:>6}{kb:>9.1f}")
+        results.append((label, want, got, kb))
+
+    if len(results) == 3:
+        _, _, got_geom, kb_geom = results[2]
+        if got_geom:
+            per_row = kb_geom / got_geom
+            need = -(-3554 // got_geom)
+            print(f"\n  {per_row:.1f} kB per row with geometry")
+            print(f"  {3554:,} CO rows / {got_geom} per request = {need} requests")
+            print(f"  = {need / 450:.0%} of one day's budget, and "
+                  f"{3554 * per_row / 1024:.0f} MB on disk")
+            if need <= limiter.remaining():
+                print("\n  → affordable today. Geometry is the 43% of the variance")
+                print("    that composition cannot reach, so this is the request")
+                print("    the rest of the phase depends on.")
+            else:
+                print(f"\n  → needs {need} requests, {limiter.remaining()} left today.")
+                print("    The download is resumable, so this is a two-session job")
+                print("    rather than a problem.")
+
+    print(f"\n  {limiter.report()}\n")
+
+
 def plan() -> None:
     """How many CLEAN single-adsorbate rows exist, per adsorbate?
 
@@ -525,10 +597,16 @@ def main() -> None:
                     help=f"which to fetch (default: all of {' '.join(ADSORBATES)})")
     ap.add_argument("--page", type=int, default=200,
                     help="rows per request; the server caps this at 200")
+    ap.add_argument("--probe-structures", action="store_true",
+                    help="measure what fetching geometries costs (3 requests)")
     args = ap.parse_args()
 
     if args.budget:
         show_budget()
+        return
+
+    if args.probe_structures:
+        probe_structures()
         return
 
     if args.plan:

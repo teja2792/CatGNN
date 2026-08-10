@@ -123,6 +123,49 @@ Phases 1–6 work on periodic bulk crystals. Phase 7 works on surface slabs with
 adsorbates. Transferring between them is a real domain shift, measured explicitly
 rather than assumed away.
 
+The Phase 7 data has four problems of its own, all measured on the 3,554 CO rows
+downloaded so far and all recorded before any model was fitted:
+
+- **The target column mixes quantities.** Catalysis-Hub's `reactionEnergy` holds
+  whatever each equation says: single-atom deposition, molecular chemisorption,
+  and multi-species reactions with negative stoichiometric coefficients. Only
+  rows matching exactly `A(g) + * -> A*` are used, decided in
+  `src/data/adsorption.py`. **41% of pre-filtered rows were rejected** — on CO,
+  the adsorbate that looked cleanest.
+- **Eleven physically impossible values**, up to +32.0 eV for CO adsorption.
+  0.31% of rows, and each would dominate a squared-error loss.
+- **23 DFT functionals**, including `RPBE_-0.413VSHE` and `BEEF-vdW_-0.42VSHE` —
+  electrochemical energies at an applied potential, which is not the same
+  quantity as gas-phase chemisorption. Worse than the Materials Project
+  functional mixing in §3.
+- **63.4% of rows come from one publication**, 83% from two. One paper means one
+  code, one functional, one set of surface conventions, so a random split lets a
+  model score by recognising a calculation rather than its chemistry. The
+  catalysis analogue of the 42.6% formula leakage, and it argues for a
+  publication-disjoint split.
+
+## 8b. Composition cannot solve the catalysis target, and that is measured
+
+Grouping the CO data by what a composition model could know gives a hard ceiling:
+
+| Known to the model | Best possible error | R² ceiling |
+|---|---|---|
+| Surface composition | 0.92 eV | 0.44 |
+| Surface composition + facet | **0.81 eV** | **0.57** |
+| Full slab formula + facet | 1.00 eV | 0.34 |
+
+Against a spread of 1.23 eV. The missing 43% is **where on the surface the
+molecule sits** — 88% of rows sit in repeated (surface, facet, adsorbate) groups
+whose energies span up to 3.25 eV, and the `sites` column records the site only
+as an opaque index (`site1` … `site47`) that carries no usable information and
+does not transfer between surfaces.
+
+This inverts the band-gap result rather than repeating it. There, structure was
+worth 2–3% over composition and the phase would have survived without it. Here
+composition **cannot get there at all**, so the geometries are mandatory and a
+composition-only Phase 7 would be a demonstration of the ceiling rather than a
+model worth having.
+
 ## 9. Single-formula illustrations are illustrations
 
 Figure 1's TiO₂ result (44 polymorphs, a 0.43 eV composition-only error floor) is
