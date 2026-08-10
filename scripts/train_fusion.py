@@ -208,6 +208,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--threads", type=int, default=None)
     ap.add_argument("--smoke", action="store_true", help="2000 crystals, 3 minutes")
+    ap.add_argument("--shuffle-labels", action="store_true",
+                    help="Phase 6 control: train on randomly permuted band gaps")
     args = ap.parse_args()
 
     if args.selftest:
@@ -227,6 +229,24 @@ def main() -> None:
     store = GraphStore()
     print(f"  {len(store):,} crystals, {store.z.size:,} atoms, {store.src.size:,} edges")
 
+    if args.shuffle_labels:
+        # The sanity check for Phase 6. Permuting the targets destroys every
+        # relationship between a crystal and its band gap while leaving the
+        # distribution of targets untouched, so a model trained on this CANNOT
+        # have learned chemistry -- but it will still fit, and an attribution
+        # method will still produce a confident-looking ranking from it. If that
+        # ranking resembles the real model's, the attribution is measuring the
+        # method rather than the model.
+        #
+        # Permuted once, globally, before splitting: permuting within a split
+        # would leave the train/test relationship subtly intact.
+        rng = np.random.default_rng(args.seed)
+        y = store.y[args.target]
+        finite = np.where(np.isfinite(y))[0]
+        y[finite] = y[rng.permutation(finite)]
+        print(f"  LABELS SHUFFLED — {len(finite):,} targets permuted (seed "
+              f"{args.seed}). This is a control, not a model.")
+
     split = load_split(args.split)
     tcfg = TrainConfig(
         target=args.target, split=args.split,
@@ -235,7 +255,8 @@ def main() -> None:
         num_threads=args.threads, exclude_metals=args.nonmetals,
         subsample_train=2000 if args.smoke else None,
         notes=f"atoms={args.atoms} composition={args.composition} "
-              f"backbone={args.backbone}",
+              f"backbone={args.backbone}"
+              + (" LABELS-SHUFFLED-CONTROL" if args.shuffle_labels else ""),
     )
 
     n_comp = 198
@@ -256,6 +277,8 @@ def main() -> None:
     model = FusedGNN(cfg)
 
     name = variant_name(args.atoms, args.composition, args.backbone)
+    if args.shuffle_labels:
+        name += "_shuffled"
     print(f"\n{'=' * 70}\n  {name.upper()} — {args.target}"
           f"{' (non-metals)' if args.nonmetals else ''} — {args.split} split\n{'=' * 70}")
 
@@ -274,6 +297,7 @@ def main() -> None:
     res["atom_features"] = args.atoms
     res["use_composition"] = args.composition
     res["backbone"] = args.backbone
+    res["shuffled_labels"] = args.shuffle_labels
     res["model_config"] = cfg.to_dict()
 
     RESULTS.mkdir(parents=True, exist_ok=True)

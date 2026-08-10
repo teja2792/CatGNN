@@ -2,7 +2,7 @@
 
 **Does knowing a material's *structure* predict its properties better than knowing its *chemistry* — and can the two be combined?**
 
-![tests](https://img.shields.io/badge/tests-130%20passing-2f8f5b)
+![tests](https://img.shields.io/badge/tests-138%20passing-2f8f5b)
 ![data](https://img.shields.io/badge/crystals-102%2C957-1f6f8b)
 ![atoms](https://img.shields.io/badge/atoms-1.42M-1f6f8b)
 ![edges](https://img.shields.io/badge/graph%20edges-16.9M-1f6f8b)
@@ -669,7 +669,7 @@ pip install "numpy>=1.24" "pandas>=2.0" "matplotlib>=3.7" "pytest>=7.4"
 
 python scripts/benchmark_hardware.py    # measure YOUR machine, writes COMPUTE_BUDGET.md
 python scripts/make_figures.py --only 1 --only 2 --only 3 --only 4
-pytest -q                               # 130 correctness tests
+pytest -q                               # 138 correctness tests
 ```
 
 To rebuild the dataset and results from scratch (~35 minutes, needs a free
@@ -707,6 +707,10 @@ python scripts/train_fusion.py --atoms properties --split random  --nonmetals
 python scripts/train_fusion.py --atoms both --composition --split element --nonmetals
 python scripts/compare_architectures.py --group fusion    # is the gap bigger than the noise?
 python scripts/diagnose_fusion.py                         # why did 'both' lose?
+
+python scripts/explain.py --selftest                      # checks the IG maths
+python scripts/train_fusion.py --atoms properties --split random --nonmetals --shuffle-labels
+python scripts/explain.py --split random                  # which chemistry did it use?
 
 python scripts/make_figures.py       # rebuild every figure from source data
 ```
