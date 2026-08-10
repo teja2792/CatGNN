@@ -190,7 +190,8 @@ def main() -> None:
         print("No graph cache.\n\n    python scripts/build_graphs.py\n")
         sys.exit(1)
 
-    from src.models.attribution import profile_similarity
+    from src.models.attribution import (cosine_null, enrichment,
+                                        profile_similarity, spearman)
     from src.models.dataset import GraphStore
     from src.models.fusion import FusedGNN, FusionConfig
     from src.models.train import TrainConfig, select_indices
@@ -263,15 +264,63 @@ def main() -> None:
     for f, v in sorted(fam.items(), key=lambda kv: -kv[1]):
         print(f"  {f:<14}{100 * v / tot:>27.1f}%")
 
-    print("\n  Sanity checks — the trained profile must NOT match a control:")
+    # ------------------------------------------------------------------
+    # Control-corrected ranking. Raw importance partly reflects the geometry of
+    # the property table rather than anything the model learned, so the reading
+    # worth trusting is what training CHANGED.
+    # ------------------------------------------------------------------
+    ctrl_key = "shuffled_labels" if "shuffled_labels" in imp else "untrained"
+    if ctrl_key in imp:
+        enr = enrichment(imp["trained"], imp[ctrl_key])
+        out["enrichment_over"] = ctrl_key
+        out["enrichment"] = enr.tolist()
+
+        print(f"\n  Control-corrected — how much MORE attribution than the "
+              f"{ctrl_key} model\n")
+        print(f"  {'#':>3}  {'property':<26}{'family':<12}{'enrichment':>12}")
+        print("  " + "-" * 55)
+        for rank, j in enumerate(np.argsort(-enr)[:8], 1):
+            print(f"  {rank:>3}  {label_of(names[j]):<26}"
+                  f"{family_of(names[j]):<12}{enr[j]:>11.1f}x")
+
+    # ------------------------------------------------------------------
+    # Sanity checks. The null for a cosine between non-negative profiles is
+    # emphatically not zero, so it is computed rather than assumed -- the first
+    # version of this script used invented thresholds and called a perfectly
+    # ordinary result "borderline".
+    # ------------------------------------------------------------------
+    null = cosine_null(len(names))
+    out["cosine_null"] = null
+    print("\n  Sanity checks — does the trained profile just reproduce a control?")
+    print(f"  Two UNRELATED non-negative profiles of length {len(names)} score "
+          f"cosine {null['mean']:.3f} (90% of the time {null['p05']:.3f}"
+          f"–{null['p95']:.3f}),")
+    print("  so cosine must be read against that. Spearman has its null at 0.\n")
+    print(f"  {'comparison':<28}{'cosine':>9}{'vs null':>18}{'Spearman':>11}")
+    print("  " + "-" * 68)
     for key in ("untrained", "shuffled_labels"):
-        if key in imp:
-            sim = profile_similarity(imp["trained"], imp[key])
-            verdict = ("SUSPICIOUS — too similar" if sim > 0.9
-                       else "ok, clearly different" if sim < 0.7
-                       else "borderline")
-            print(f"    trained vs {key:<18}cosine {sim:+.3f}   {verdict}")
-            out.setdefault("similarity", {})[key] = sim
+        if key not in imp:
+            continue
+        sim = profile_similarity(imp["trained"], imp[key])
+        rho = spearman(imp["trained"], imp[key])
+        where = ("ABOVE the 95th pct" if sim > null["p95"]
+                 else "below the 5th pct" if sim < null["p05"]
+                 else "inside the null range")
+        print(f"  trained vs {key:<17}{sim:>9.3f}{where:>18}{rho:>11.3f}")
+        out.setdefault("similarity", {})[key] = {"cosine": sim, "spearman": rho}
+
+    sims = out.get("similarity", {})
+    if sims:
+        worst_cos = max(v["cosine"] for v in sims.values())
+        worst_rho = max(v["spearman"] for v in sims.values())
+        if worst_cos > null["p95"] or worst_rho > 0.8:
+            print("\n  → SUSPICIOUS. The trained model's profile is close enough to a")
+            print("    control that the attribution may be measuring the method and the")
+            print("    input distribution rather than anything the model learned.")
+        else:
+            print("\n  → passes. Neither control reproduces the trained ranking, so the")
+            print("    attribution is telling us about this model rather than about")
+            print("    integrated gradients or the shape of the property table.")
 
     worst = max(v["worst_completeness_per_crystal"] for v in out["models"].values())
     print(f"\n  worst completeness error, per crystal: {worst:.2e}")
