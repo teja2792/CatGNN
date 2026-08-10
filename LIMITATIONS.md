@@ -333,7 +333,45 @@ Recorded because the failure mode is general and easy to repeat: a threshold tha
 feels right, on a statistic whose null distribution was never checked, in a test
 whose entire purpose is to be harder to pass than the thing it guards.
 
-## 17. Single author, no independent replication
+## 17. The catalysis geometry set is 400 rows from one paper with one functional
+
+Geometry does not come back in pages. The GraphQL endpoint returns **one row per
+request** when `InputFile` is asked for, against a published budget of 500 requests
+a day with automatic suspension. All 3,554 clean CO rows would be eight days of
+budget. The bulk route was tried and is closed: CatHub's documented public Postgres
+credentials are rejected (`password authentication failed for user "apiuser"`).
+
+So the geometry set is **400 rows — 11% of the clean CO rows**, and three things
+follow that limit what any result on it can claim.
+
+**PBE only.** The full table mixes 23 DFT functionals, including potential-referenced
+electrochemical ones like `BEEF-vdW_-0.73VSHE`. Those are not the same quantity as a
+gas-phase PBE binding energy, and pooling them puts a systematic offset into the
+labels that no architecture can remove. Restricting to PBE removes the confound by
+construction. The cost is that nothing here transfers to other functionals without
+being re-checked.
+
+**One publication.** The PBE subset is 2,243 of 2,252 rows from `YohannesCombined2023`,
+so the sample is single-source. This **rules out the publication-disjoint split** that
+§8b argued for — the catalysis analogue of the element split that mattered most in
+Phase 5. The available generalisation test is surface-disjoint: hold out whole
+(surface, facet) groups. That is a real test, and it is a weaker one, because two
+studies disagreeing about the same surface is a failure mode this sample cannot see.
+
+**40 surfaces × 10 sites, chosen rather than sampled.** A uniform random 400 would
+have given roughly one site per surface, and site variation is exactly the 43% of the
+variance that composition cannot reach — the sample would have contained none of the
+signal it was bought for. Taking the 11 largest groups instead gives plenty of site
+variation and a held-out set of two or three surfaces, which cannot support a
+generalisation claim. 40×10 is the compromise, with groups drawn from across the
+size range rather than the top so the set is not just the most-studied surfaces.
+The selection is in `src/data/geometry_sample.py`, deterministic and tested.
+
+Measured on the real table: median within-surface energy spread **1.45 eV**, against
+a composition-only floor of 0.806 eV. The signal is present. Whether the model finds
+it is the experiment.
+
+## 18. Single author, no independent replication
 
 Everything here was built and checked by one person. The mitigations — assertions
 that fail loudly, figures regenerated from source data rather than hand-edited, CI on

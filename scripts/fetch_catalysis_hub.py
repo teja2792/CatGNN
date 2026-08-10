@@ -655,10 +655,24 @@ def main() -> None:
                     help="rows per request; the server caps this at 200")
     ap.add_argument("--probe-structures", action="store_true",
                     help="measure what fetching geometries costs (3 requests)")
+    ap.add_argument("--geometries", action="store_true",
+                    help="fetch slab geometries for the designed sample "
+                         "(1 request per row; resumable; --dry-run first)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="show the sample and its cost without spending a request")
+    ap.add_argument("--surfaces", type=int, default=40,
+                    help="how many surfaces in the geometry sample")
+    ap.add_argument("--sites", type=int, default=10,
+                    help="how many sites per surface in the geometry sample")
     args = ap.parse_args()
 
     if args.budget:
         show_budget()
+        return
+
+    if args.geometries:
+        geometries(n_surfaces=args.surfaces, sites_per_surface=args.sites,
+                   dry_run=args.dry_run)
         return
 
     if args.probe_structures:
@@ -678,6 +692,189 @@ def main() -> None:
         return
 
     download(adsorbates=args.adsorbates or ADSORBATES, page=args.page)
+
+
+GEOM_FILE = OUT_DIR / "geometries.jsonl"
+GEOM_MANIFEST = OUT_DIR / "geometries_manifest.json"
+
+
+def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
+               dry_run: bool = False) -> None:
+    """Fetch slab geometries, one request per row, for a deliberately chosen sample.
+
+    This is the expensive mode and the one the phase turns on. The metadata
+    download got 200 rows a request; geometry comes back one row at a time, so
+    every row costs a request against a 450/day budget. 3,554 rows would be eight
+    days. 400 rows is one.
+
+    Which 400 is a scientific decision, not a sampling detail, and it is made in
+    src/data/geometry_sample.py where it can be tested without spending anything.
+    The short version: 40 surfaces x 10 sites, PBE only. Enough surfaces to hold
+    some out, enough sites on each that within-surface variation — the 43% of the
+    variance composition cannot reach — is present to be learned and to be tested.
+
+    Resumable by row id. A run stopped by the daily budget re-derives the same
+    sample tomorrow (the selection is deterministic), skips what is already on
+    disk, and continues. Nothing is re-fetched, because re-fetching is not free.
+    """
+    from src.config import get_catalysis_hub_key, key_fingerprint
+    from src.data.geometry_sample import (
+        FUNCTIONAL, decode_reaction_id, describe, load_rows, select)
+    from src.data.rate_limit import DailyBudgetExhausted, RateLimiter
+
+    if not ROWS_FILE.exists():
+        print(f"\n  {ROWS_FILE.relative_to(REPO)} does not exist.\n"
+              "  Run the metadata download first — the sample is chosen from it.\n")
+        sys.exit(1)
+
+    rows = load_rows(ROWS_FILE)
+    sample = select(rows, n_surfaces=n_surfaces, sites_per_surface=sites_per_surface)
+    desc = describe(sample)
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    have = set()
+    if GEOM_FILE.exists():
+        with GEOM_FILE.open(encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    have.add(json.loads(line)["id"])
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+    todo = [r for r in sample if r["id"] not in have]
+    limiter = RateLimiter(BUDGET_FILE)
+
+    print(f"\n{'=' * 76}\n  Catalysis-Hub: slab geometries for the chosen sample"
+          f"\n{'=' * 76}")
+    print(f"\n  The sample ({len(rows):,} clean rows on disk -> {desc['rows']} chosen)")
+    print(f"    {desc['surfaces']} surfaces x >={desc['sites_per_surface_min']} sites"
+          f"   adsorbate {'/'.join(desc['adsorbates'])}   functional {FUNCTIONAL}")
+    print(f"    median within-surface energy spread "
+          f"{desc['median_within_surface_spread_eV']:.2f} eV")
+    print("      ^ this is the signal being bought. A model that only knows the")
+    print("        surface predicts one number for all 10 sites and cannot get")
+    print("        inside this spread; the composition ceiling is 0.806 eV.")
+
+    print("\n  What the sample is NOT (state this, do not discover it later)")
+    for label, field in (("publications", "publications"), ("functionals", "functionals")):
+        items = desc[field]
+        print(f"    {label:<14}{len(items)}: "
+              f"{', '.join(f'{k} ({v})' for k, v in items.items())}")
+    if len(desc["publications"]) == 1:
+        print("    -> one publication, so NO publication-disjoint split is possible")
+        print("       here. The surface-disjoint split is, and is the honest test.")
+
+    print(f"\n  Cost\n    {len(sample)} rows, {len(have)} already fetched, "
+          f"{len(todo)} to go, 1 request each")
+    print(f"    {limiter.report()}")
+    if len(todo) > limiter.remaining():
+        print(f"    -> {len(todo)} needed, {limiter.remaining()} left today. "
+              "This will stop on the budget and resume.")
+
+    if dry_run:
+        print("\n  --dry-run: nothing fetched, no request spent.\n")
+        return
+    if not todo:
+        print("\n  Sample complete. Nothing to fetch.\n")
+        _write_geometry_manifest(desc, len(have), n_surfaces, sites_per_surface)
+        return
+
+    key = get_catalysis_hub_key()
+    print(f"\n  key {key_fingerprint(key)}")
+    print(f"\n  {'done':>6}{'kept':>7}{'no geom':>9}{'elapsed':>10}   note")
+    print("  " + "-" * 52)
+
+    import time
+    t0 = time.time()
+    done = kept = nogeom = 0
+    stopped = None
+
+    with GEOM_FILE.open("a", encoding="utf-8") as out:
+        for r in todo:
+            rid = decode_reaction_id(r["id"])
+            if rid is None:
+                nogeom += 1
+                continue
+            try:
+                limiter.acquire()
+            except DailyBudgetExhausted as e:
+                stopped = e
+                break
+
+            q = ('{ reactions(id: %d) { edges { node { id reactionEnergy '
+                 'systems { Formula energy InputFile(format: "json") } } } } }' % rid)
+            node = (post(q, key=key).get("data") or {}).get("reactions")
+            done += 1
+            edges = (node or {}).get("edges") or []
+            if not edges:
+                nogeom += 1
+            else:
+                systems = edges[0]["node"].get("systems") or []
+                # Keep the row even with no systems, so a resumed run does not
+                # pay for it again to rediscover that it has no geometry.
+                if not systems:
+                    nogeom += 1
+                else:
+                    kept += 1
+                out.write(json.dumps({
+                    "id": r["id"], "reaction_id": rid,
+                    "reactionEnergy": r["reactionEnergy"],
+                    "surfaceComposition": r.get("surfaceComposition"),
+                    "facet": r.get("facet"), "sites": r.get("sites"),
+                    "dftFunctional": r.get("dftFunctional"),
+                    "pubId": r.get("pubId"), "adsorbate": r.get("adsorbate"),
+                    "systems": systems,
+                }) + "\n")
+
+            if done % 25 == 0:
+                out.flush()
+                el = time.time() - t0
+                left = (len(todo) - done) * el / done
+                print(f"  {done:>6}{kept:>7}{nogeom:>9}{el / 60:>9.1f}m"
+                      f"   ~{left / 60:.0f}m left")
+
+    el = time.time() - t0
+    print(f"  {done:>6}{kept:>7}{nogeom:>9}{el / 60:>9.1f}m   "
+          f"{'budget reached' if stopped else 'sample complete'}")
+
+    total = len(have) + kept
+    print(f"\n  {total} rows with geometry in {GEOM_FILE.relative_to(REPO)}")
+    print(f"  {limiter.report()}")
+    _write_geometry_manifest(desc, total, n_surfaces, sites_per_surface)
+
+    if stopped:
+        print(f"\n{stopped}\n")
+        print("  Re-run tomorrow. The sample is deterministic and rows already\n"
+              "  on disk are skipped, so nothing is paid for twice.\n")
+    else:
+        print("\n  Done. Next: build slab graphs. Note MAX_SITES=30 is a bulk-cell\n"
+              "  cap — a slab plus adsorbate exceeds it routinely, and silently\n"
+              "  dropping the large ones would bias the set toward small surfaces.\n")
+
+
+def _write_geometry_manifest(desc, total, n_surfaces, sites_per_surface) -> None:
+    """The record of what was sampled and, more importantly, what it excludes."""
+    GEOM_MANIFEST.write_text(json.dumps({
+        "source": API,
+        "rows_with_geometry": total,
+        "design": {
+            "surfaces": n_surfaces, "sites_per_surface": sites_per_surface,
+            "rule": "src/data/geometry_sample.select — size-sorted groups picked "
+                    "at evenly spaced ranks, not the largest, so the sample is "
+                    "not only the most-studied surfaces",
+            "why": "1 request per row against a 450/day budget. 40x10 keeps "
+                   "enough surfaces to hold some out AND enough sites on each "
+                   "to contain the within-surface variation being tested.",
+        },
+        "observed": desc,
+        "limitations": [
+            "PBE only. Removes the 23-functional confound by construction and "
+            "costs the ability to say anything about other functionals.",
+            "One publication, so no publication-disjoint split is possible. The "
+            "surface-disjoint split is the honest generalisation test here.",
+            "400 of 3,554 clean CO rows. A sample size, stated, not hidden.",
+        ],
+    }, indent=2), encoding="utf-8")
 
 
 def download(adsorbates, page: int = 200) -> None:
