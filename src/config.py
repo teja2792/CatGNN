@@ -119,18 +119,29 @@ def get_catalysis_hub_key(explicit: str | None = None) -> str:
     service has a shelf life, and the only way to know it has expired is to make
     the request.
     """
-    key = (explicit
-           or os.environ.get("CATALYSIS_HUB_API_KEY")
-           or _read_dotenv(REPO / ".env").get("CATALYSIS_HUB_API_KEY"))
+    from_env = os.environ.get("CATALYSIS_HUB_API_KEY")
+    dotenv_path = REPO / ".env"
+    from_file = _read_dotenv(dotenv_path).get("CATALYSIS_HUB_API_KEY")
+
+    key = explicit or from_env or from_file
     if not key:
+        # Say exactly which places were checked and what was found in each. A
+        # bare "not found" sends people to re-read instructions they already
+        # followed; the useful information is WHICH lookup failed.
         raise MissingAPIKey(
-            "No Catalysis-Hub API key found.\n\n"
-            "This is NOT your Materials Project key -- it is a separate one.\n"
-            "Get it at https://api.catalysis-hub.org/auth/login, then either:\n\n"
-            "  PowerShell (persists across terminals):\n"
-            '    setx CATALYSIS_HUB_API_KEY "your_key_here"\n'
-            "    # then open a NEW terminal\n\n"
-            "  or add a line to the .env file in the repo root (gitignored):\n"
+            "No Catalysis-Hub API key found. Checked, in order:\n\n"
+            f"  1. environment variable CATALYSIS_HUB_API_KEY   "
+            f"{'set' if from_env else 'NOT SET in this process'}\n"
+            f"  2. {dotenv_path}   "
+            f"{'exists but has no CATALYSIS_HUB_API_KEY line' if dotenv_path.exists() else 'does not exist'}\n\n"
+            "This is NOT your Materials Project key -- it is a separate one,\n"
+            "from https://api.catalysis-hub.org/auth/login.\n\n"
+            "THE .env FILE IS THE RELIABLE OPTION. Environment variables set with\n"
+            "setx only reach processes started afterwards, and a VS Code terminal\n"
+            "inherits VS Code's environment -- so a new terminal TAB is not enough,\n"
+            "the whole editor has to restart. A .env file has none of that\n"
+            "behaviour and is already gitignored.\n\n"
+            "  Create it in the repo root with one line:\n"
             "    CATALYSIS_HUB_API_KEY=your_key_here\n"
         )
     return key.strip()
