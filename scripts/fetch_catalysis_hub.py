@@ -61,6 +61,36 @@ So the download is built around a budget rather than around throughput:
   * rows per request are maximised, since the scarce resource is requests and
     not rows.
 
+WHAT THE PROBE FOUND, AND WHY IT CHANGED THE PLAN
+--------------------------------------------------
+    158,304 reactions
+    200 rows per request  (asked for 1000, got 200)
+    -> 792 requests to page the whole table = 1.8 days of a 450/day budget
+    one reaction's structures = 5.3 kB, so all of them would be ~840 MB
+
+TARGET HETEROGENEITY -- the finding that matters most. `reactionEnergy` is NOT a
+single comparable quantity. The three sampled records were:
+
+    Rh(g) + * -> Rh*                                    -6.54 eV
+    Au(g) + * -> Au*                                    -2.78 eV
+    3.0CH4(g) + H2O(g) - 2.0H2(g) + * -> 3.0CH3* + HO*  +9.44 eV
+
+The first two are single metal atoms depositing on a surface. The third is three
+methyls and a hydroxyl formed together at a stated coverage, with stoichiometric
+coefficients including a NEGATIVE one. Its +9.44 eV is large because four species
+are formed at once, not because the binding is weak.
+
+Training on this column as-is would fit a model to a target whose physical
+meaning changes from row to row -- a worse version of the DFT-functional
+ambiguity Phase 1 hit with Materials Project, and one that would produce a
+plausible-looking number that means nothing.
+
+So Phase 7 has to filter to a comparable subset before it trains on anything.
+The natural one is single-adsorbate chemisorption: exactly one product, with
+coefficient 1, of the form A(g) + * -> A*. Whether metal-atom deposition belongs
+in the same target as molecular adsorption is a further question -- physically
+they are different processes, and mixing them is the same mistake one level down.
+
 WHY THIS FILE STARTS WITH A PROBE
 ----------------------------------
 Phase 1 taught this the hard way. Writing a full downloader against an API whose
@@ -152,6 +182,79 @@ def show_budget() -> None:
     print("\n  Published limits: 10/minute, 500/day with automatic suspension.")
     print("  This tool self-limits to 90% of the daily cap and waits out the")
     print("  per-minute one. Requests made from the website are NOT counted here.\n")
+
+
+def probe_filters() -> None:
+    """Can the server filter, or must 158,304 rows be pulled to find the useful ones?
+
+    This is the question the first probe raised and could not answer, and it is
+    worth two requests because it changes the budget by an order of magnitude.
+
+    The first probe established: 200 rows per request, 158,304 reactions, so 792
+    requests -- 1.8 days of a 450/day budget -- to page the whole table. That is
+    survivable but wasteful, because most of those rows are not usable as a
+    single, comparable target (see the docstring's TARGET HETEROGENEITY note).
+
+    If `reactions` accepts server-side filters, only the wanted rows need
+    fetching and the cost collapses. If it does not, the download has to page
+    everything and filter locally, and Phase 7 has to be planned across two days.
+
+    Introspecting the ARGUMENTS of the reactions field answers it. The first probe
+    introspected the Reaction *type* -- its fields -- which says what comes back,
+    not what can be asked for.
+    """
+    from src.config import get_catalysis_hub_key
+    from src.data.rate_limit import RateLimiter
+
+    key = get_catalysis_hub_key()
+    limiter = RateLimiter(BUDGET_FILE)
+    print(f"\n{'=' * 76}\n  Can the server filter?\n{'=' * 76}")
+    print(f"\n  {limiter.report()}   (this probe uses at most 2)")
+
+    limiter.acquire()
+    r = post("""
+    { __schema { queryType { fields { name args {
+        name defaultValue type { name kind ofType { name kind } } } } } } }
+    """, key=key)
+
+    fields = (((r.get("data") or {}).get("__schema") or {})
+              .get("queryType") or {}).get("fields", [])
+    target = next((f for f in fields if f["name"] == "reactions"), None)
+    if not target:
+        print("  no 'reactions' field on the root query — schema has changed:")
+        print("  " + json.dumps([f["name"] for f in fields])[:400])
+        return
+
+    args = target.get("args", [])
+    print(f"\n  reactions(...) accepts {len(args)} arguments:\n")
+    pagination = {"first", "last", "before", "after", "offset"}
+    filters = []
+    for a in sorted(args, key=lambda x: x["name"]):
+        ty = a["type"]
+        tn = ty.get("name") or (ty.get("ofType") or {}).get("name") or ty["kind"]
+        kind = "pagination" if a["name"] in pagination else "FILTER"
+        if kind == "FILTER":
+            filters.append(a["name"])
+        print(f"    {a['name']:<28}{str(tn):<14}{kind}")
+
+    if not filters:
+        print("\n  → no server-side filtering. The download must page all 792\n"
+              "    requests and filter locally, across two days of budget.")
+        return
+
+    print(f"\n  → {len(filters)} filterable arguments. The download can ask for\n"
+          "    only the rows it needs instead of paging the whole table.")
+
+    # Try the one that matters: can we ask for single-adsorbate reactions?
+    if "products" in filters:
+        print("\n  Testing a products filter (single CO adsorption):\n")
+        limiter.acquire()
+        t = post('{ reactions(first: 3, products: "~COstar") { totalCount '
+                 'edges { node { Equation reactionEnergy surfaceComposition '
+                 'facet } } } }', key=key)
+        print("  " + json.dumps(t, indent=2)[:1400])
+
+    print(f"\n  {limiter.report()}\n")
 
 
 def probe() -> None:
@@ -293,10 +396,16 @@ def main() -> None:
                     help="inspect the API and stop (do this first)")
     ap.add_argument("--budget", action="store_true",
                     help="show the request ledger and exit, spending nothing")
+    ap.add_argument("--probe-filters", action="store_true",
+                    help="can the server filter? decides the whole request budget")
     args = ap.parse_args()
 
     if args.budget:
         show_budget()
+        return
+
+    if args.probe_filters:
+        probe_filters()
         return
 
     if args.probe:
