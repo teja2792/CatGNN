@@ -102,6 +102,40 @@ def get_mp_api_key(explicit: str | None = None) -> str:
     return key.strip()
 
 
+def get_catalysis_hub_key(explicit: str | None = None) -> str:
+    """Catalysis-Hub API key. A DIFFERENT key from the Materials Project one.
+
+    Same resolution order and the same discipline as get_mp_api_key: environment
+    first, then a gitignored .env, never written to a file this repo creates,
+    never printed, only ever fingerprinted into a manifest.
+
+    Worth recording why this function exists at all. The 2019 Scientific Data
+    paper describes an open API and this repository's first draft said "openly
+    accessible without a key". The probe returned HTTP 401 with a message
+    pointing at an auth endpoint, so that claim is now wrong. Schema
+    introspection still works unauthenticated; only data queries do not.
+
+    That is a small example of a general problem: a documented fact about a live
+    service has a shelf life, and the only way to know it has expired is to make
+    the request.
+    """
+    key = (explicit
+           or os.environ.get("CATALYSIS_HUB_API_KEY")
+           or _read_dotenv(REPO / ".env").get("CATALYSIS_HUB_API_KEY"))
+    if not key:
+        raise MissingAPIKey(
+            "No Catalysis-Hub API key found.\n\n"
+            "This is NOT your Materials Project key -- it is a separate one.\n"
+            "Get it at https://api.catalysis-hub.org/auth/login, then either:\n\n"
+            "  PowerShell (persists across terminals):\n"
+            '    setx CATALYSIS_HUB_API_KEY "your_key_here"\n'
+            "    # then open a NEW terminal\n\n"
+            "  or add a line to the .env file in the repo root (gitignored):\n"
+            "    CATALYSIS_HUB_API_KEY=your_key_here\n"
+        )
+    return key.strip()
+
+
 def key_fingerprint(key: str) -> str:
     """Short, non-reversible identifier for a key, safe to record in a manifest."""
     import hashlib

@@ -189,10 +189,24 @@ precisely because the dataset holds DFT values, which are smaller.
   surface reactions.* **Scientific Data 6, 75 (2019)**.
   https://www.nature.com/articles/s41597-019-0081-y
 
-  Open GraphQL API at https://api.catalysis-hub.org/graphql, no key required.
-  Holds DFT surface reaction and chemisorption energies together with the surface
-  geometries, which is what makes graph construction possible rather than just
-  composition featurisation.
+  GraphQL API at https://api.catalysis-hub.org/graphql. Holds DFT surface
+  reaction and chemisorption energies together with the surface geometries, which
+  is what makes graph construction possible rather than just composition
+  featurisation.
+
+  **An API key is now required**, from https://api.catalysis-hub.org/auth/login.
+  This entry originally said "no key required", on the authority of the 2019
+  paper; the probe returned HTTP 401 and the claim was corrected. Schema
+  introspection still works unauthenticated, data queries do not. The key is
+  separate from the Materials Project one and is read from
+  `CATALYSIS_HUB_API_KEY` — see `config.get_catalysis_hub_key`.
+
+  **Rate limits, published by the service and enforced in
+  `src/data/rate_limit.py`:** 10 requests/minute, and **500 requests/day with
+  automatic suspension above that**. Cursor pagination (`first` / `after`) is
+  required to page large result sets. The daily cap is the binding constraint on
+  Phase 7 — not compute, not disk — and it is why the downloader keeps a rolling
+  24-hour ledger on disk and resumes by cursor rather than restarting.
 
 **OC20 (Open Catalyst 2020) is deliberately not used.** It is far larger and
 would be the better dataset on any machine with room for it. It is also hundreds
