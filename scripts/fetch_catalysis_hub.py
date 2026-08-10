@@ -133,6 +133,43 @@ Two clean rows from the same query, as a sanity check that the data is real:
 A 2 eV spread across alloys is exactly the variation a binding-energy model is
 wanted for, and it runs the right way round.
 
+GEOMETRY IS NOT AVAILABLE THROUGH THIS API AT ANY REASONABLE COST
+------------------------------------------------------------------
+Measured, not estimated:
+
+    metadata only                              asked 200  ->  got 200   22 kB
+    + systems (Formula, energy)                asked 200  ->  got 200   46 kB
+    + systems with InputFile (the geometry)    asked  20  ->  got   1    7 kB
+
+Asking for the geometry caps the response at ONE ROW per request. So the 3,554 CO
+rows already downloaded would cost 3,554 requests -- eight days of a 450/day
+budget, for a single adsorbate.
+
+That is a wall, not a slow path, and it means the GraphQL API is the wrong tool
+for the part of Phase 7 that matters. The inspection showed geometry carries 43%
+of the variance in CO binding; an API that serves it one row at a time cannot
+supply it.
+
+THE BULK ROUTE
+--------------
+Catalysis-Hub publishes a Python package, CatHub, whose CathubSQL class talks to
+the database directly rather than through GraphQL:
+
+    from cathub.cathubsql import CathubSQL
+    db = CathubSQL()
+    df = db.get_dataframe(pub_id="YohannesCombined2023", include_atoms=True)
+
+That returns reaction energies AND atoms together, per publication, in one
+operation. Since 63.4% of the CO rows come from one publication and 83% from two,
+two such calls would cover most of the dataset -- against 3,554 API requests for
+the same thing.
+
+Worth being clear about the risk before relying on it: this is a different access
+path with its own availability and its own conventions, and the metadata it
+returns may not line up field-for-field with what GraphQL gave. The rows already
+downloaded here are the reference to check it against, which is a good reason to
+have fetched them first rather than waiting.
+
 WHY THIS FILE STARTS WITH A PROBE
 ----------------------------------
 Phase 1 taught this the hard way. Writing a full downloader against an API whose

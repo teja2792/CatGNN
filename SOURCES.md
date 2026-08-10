@@ -208,6 +208,14 @@ precisely because the dataset holds DFT values, which are smaller.
   Phase 7 — not compute, not disk — and it is why the downloader keeps a rolling
   24-hour ledger on disk and resumes by cursor rather than restarting.
 
+**Geometries come from the CatHub package, not the GraphQL API.** Measured: a
+GraphQL query including `InputFile` returns exactly one row per request, so the
+3,554 CO rows would cost 3,554 requests — eight days at the published 500/day
+cap. The `CathubSQL` class in
+[SUNCAT-Center/CatHub](https://github.com/SUNCAT-Center/CatHub) returns reaction
+energies and atoms together per publication in one call. Documentation:
+http://docs.catalysis-hub.org/
+
 **OC20 (Open Catalyst 2020) is deliberately not used.** It is far larger and
 would be the better dataset on any machine with room for it. It is also hundreds
 of gigabytes, which is out of scope for a project that runs on one laptop CPU —
