@@ -91,6 +91,26 @@ coefficient 1, of the form A(g) + * -> A*. Whether metal-atom deposition belongs
 in the same target as molecular adsorption is a further question -- physically
 they are different processes, and mixing them is the same mistake one level down.
 
+THE PRE-FILTER IS CASE-INSENSITIVE SUBSTRING MATCHING, AND IT LIES
+-------------------------------------------------------------------
+Counting rows per adsorbate with `products: "~<A>star"` gave, among others,
+13,364 for H and 34,709 for O. Both are mostly pollution:
+
+    ~Hstar    matched  Rhstar          rhodium, returned when asked for hydrogen
+    ~Nstar    matched  Znstar          zinc, returned when asked for nitrogen
+    ~OHstar   matched  CH3CH2OHstar    ethanol, returned when asked for hydroxyl
+    ~OOHstar  matched  COOHstar        carboxyl
+    ~Ostar    matched  HOstar, COstar, CH3Ostar, ...
+
+Only CO, C and NO came back clean. The counts looked entirely plausible, which is
+the dangerous part -- scoping a dataset from them yields a large, well-formed
+table of the wrong thing.
+
+So the server filter narrows the download and decides nothing. Membership is
+decided locally in src/data/adsorption.py, by exact match on the parsed JSON, and
+the adsorbate label is read from the ROW rather than from the query that fetched
+it. The contaminated rows above are kept as regression tests.
+
 SERVER-SIDE FILTERING EXISTS, AND IT IS NOT ENOUGH ON ITS OWN
 --------------------------------------------------------------
 `reactions` takes 20 filterable arguments, so only the wanted rows need
