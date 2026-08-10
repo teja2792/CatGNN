@@ -164,11 +164,30 @@ operation. Since 63.4% of the CO rows come from one publication and 83% from two
 two such calls would cover most of the dataset -- against 3,554 API requests for
 the same thing.
 
-Worth being clear about the risk before relying on it: this is a different access
-path with its own availability and its own conventions, and the metadata it
-returns may not line up field-for-field with what GraphQL gave. The rows already
-downloaded here are the reference to check it against, which is a good reason to
-have fetched them first rather than waiting.
+TESTED, AND IT IS ALSO CLOSED:
+
+    psycopg2.OperationalError: connection to server at
+    "catalysishub.cx2awgo40dih.us-west-2.rds.amazonaws.com", port 5432 failed:
+    FATAL: password authentication failed for user "apiuser"
+
+CatHub ships hardcoded public read-only Postgres credentials, and they no longer
+authenticate. That is consistent with the API key requirement appearing on the
+GraphQL side: direct database access looks to have been closed at the same time.
+The package installs and imports fine, so the failure only shows up at connect
+time -- which is why it was worth five minutes to test rather than assume.
+
+So BOTH routes to geometry are shut:
+
+    GraphQL + InputFile     1 row per request  ->  8 days for one adsorbate
+    CathubSQL direct        credentials rejected
+
+This is a genuine external constraint rather than a thing to engineer around, and
+it bounds what Phase 7 can be. What it does NOT bound is the finding already in
+hand: the ceiling measurement needs no structures at all, and it is the strongest
+statement this repository has made. Composition tops out at R2 = 0.57 on CO
+binding because 43% of the variance is geometry -- which is now demonstrated
+twice over, once by the variance decomposition and once by the fact that the
+geometry is hard to get.
 
 WHY THIS FILE STARTS WITH A PROBE
 ----------------------------------
