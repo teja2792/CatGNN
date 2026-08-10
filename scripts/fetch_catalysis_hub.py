@@ -148,8 +148,13 @@ def probe() -> None:
               "(the key itself is never printed or written anywhere)")
     except MissingAPIKey as e:
         key = None
-        print(f"\n  no key configured — schema introspection will still work,\n"
-              f"  data queries will not.\n\n{e}")
+        print("\n  " + "!" * 70)
+        print("  NO KEY VISIBLE TO THIS PROCESS.")
+        print("  If you just ran setx, that is the reason: setx only affects")
+        print("  processes started AFTERWARDS. Close this terminal, open a new")
+        print("  one, and run again. The key is fine; this shell cannot see it.")
+        print("  " + "!" * 70)
+        print(f"\n{e}")
 
     limiter = RateLimiter(BUDGET_FILE)
     print(f"  {limiter.report()}")
