@@ -214,10 +214,17 @@ underdeveloped.
 properties carry **62%** of the between-element signal, the learned codes 38%. The
 model did **not** prefer the shortcut, and the explanation was wrong.
 
-The corrected mechanism is that a pathway does not need to dominate to do damage.
-For a held-out element the learned row was never trained, so its contribution is
-noise, and nothing lets the model disable that route only for the elements where
-it is meaningless.
+The corrected mechanism — that a pathway does not need to dominate to do damage,
+because for a held-out element the learned row was never trained — was then tested
+by ablation: neutralise only those rows in the already-trained model and re-score.
+It recovers **53%** of the penalty (0.836 → 0.744 eV against 0.663 eV for
+`properties`).
+
+So the third explanation is **confirmed but partial**. Roughly half the cost of
+keeping the learned code is untrained rows; the other 0.081 eV is not accounted
+for. The obvious untested suspect is capacity — `both` carries 14,720 more
+parameters than `properties` — and a size-matched control has not been run. The
+README says half, not all.
 
 Two process notes, both uncomfortable and both worth keeping:
 

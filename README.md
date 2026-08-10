@@ -338,9 +338,24 @@ to do damage. For a held-out element the learned row was never trained, so
 whatever it contributes is noise, and nothing lets the model switch that route off
 for exactly the elements where it is meaningless.
 
-That correction is itself now under test — `diagnose_fusion.py` replaces the
-untrained rows with the average trained row and re-scores the same weights, which
-either recovers the gap or refutes the explanation.
+**And that correction has now been tested rather than asserted.** Take the trained
+`both` model, overwrite only the ten held-out elements' rows with the average
+trained row — same weights, no retraining — and re-score:
+
+| | Unseen-element error |
+|---|---|
+| `both`, as trained | 0.836 eV |
+| …untrained rows neutralised | **0.744 eV** |
+| `properties`, no learned route at all | 0.663 eV |
+
+**Neutralising those rows recovers 53% of the penalty without touching a single
+trained weight.** So the mechanism is real — but it is only half the story. The
+remaining 0.081 eV is unexplained. The obvious untested suspect is the 14,720
+extra parameters `both` carries, and I have not run that control.
+
+That is three explanations for this one result: two refuted, one confirmed at
+about half strength. It is recorded that way rather than trimmed to the version
+that worked.
 
 > **What a chemical engineer should take from this.** Structure is worth ~20%
 > over chemistry, but only if the network is *also* given the chemistry. A graph

@@ -172,29 +172,46 @@ def ablate_learned_rows(torch, held_z):
 
     after = evaluate(model, store, te, "band_gap", norm, torch)["mae"]
 
-    print(f"\n     {'as trained':<44}{before:>9.4f} eV")
-    print(f"     {'held-out rows replaced by the average':<44}{after:>9.4f} eV")
-    print(f"     {'change':<44}{after - before:>+9.4f} eV")
     ref = RESULTS / "fusion_band_gap_nonmetals.json"
+    target = None
     if ref.exists():
-        pv = json.loads(ref.read_text(encoding="utf-8")).get(
+        target = json.loads(ref.read_text(encoding="utf-8")).get(
             "cgcnn_properties", {}).get("element", {}).get("test", {}).get("mae")
-        if pv:
-            print(f"\n     for reference, 'properties' — no learned route at all:"
-                  f"{pv:>9.4f} eV")
 
-    if after < before - 0.01:
-        print("\n     → removing the untrained noise recovers most of the gap without")
-        print("       touching a single trained weight. The learned route was hurting")
-        print("       precisely because its rows for unseen elements are meaningless.")
-    elif after > before + 0.01:
-        print("\n     → it got WORSE, so the untrained rows were not the problem.")
+    print(f"\n     {'as trained':<46}{before:>9.4f} eV")
+    print(f"     {'held-out rows replaced by the average':<46}{after:>9.4f} eV")
+    if target:
+        print(f"     {chr(39) + 'properties' + chr(39) + ' — no learned route at all':<46}"
+              f"{target:>9.4f} eV")
+
+    recovered = before - after
+    print(f"\n     the swap recovers {recovered:+.4f} eV without touching a trained weight")
+
+    frac = None
+    if target and before > target:
+        frac = recovered / (before - target)
+        print(f"     that is {100 * frac:.0f}% of the {before - target:.4f} eV gap between "
+              f"'both' and 'properties'")
+
+    if recovered <= 0.01:
+        print("\n     → essentially no change. Untrained rows were NOT the cause, and the")
+        print("       explanation in B is refuted along with the two before it.")
+    elif frac is not None and frac < 0.75:
+        print("\n     → PARTLY confirmed, and only partly. Neutralising the untrained rows")
+        print("       accounts for about half the penalty, so the noise mechanism is real")
+        print(f"       but is not the whole story. The remaining {(after - target):.4f} eV is "
+              "unexplained;")
+        print("       the obvious suspects are the extra 14,720 parameters 'both' carries")
+        print("       and the learned route diluting the property signal for elements the")
+        print("       model DID see. Neither has been tested.")
     else:
-        print("\n     → essentially no change. The explanation in B is not supported;")
-        print("       'both' loses for some other reason and this is still open.")
+        print("\n     → confirmed. Neutralising the untrained rows recovers nearly all of")
+        print("       the penalty, so that noise was the mechanism.")
 
     return {"mae_as_trained": float(before), "mae_rows_replaced": float(after),
-            "delta": float(after - before)}
+            "mae_properties": float(target) if target else None,
+            "recovered_ev": float(recovered),
+            "fraction_of_gap_recovered": float(frac) if frac is not None else None}
 
 
 def main() -> None:

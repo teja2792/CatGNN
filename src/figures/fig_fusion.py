@@ -83,7 +83,12 @@ def load():
     p = RESULTS / "fusion_significance.json"
     if p.exists():
         sig = json.loads(p.read_text(encoding="utf-8"))
-    return fus, base, sig
+
+    diag = {}
+    p = RESULTS / "fusion_diagnostics.json"
+    if p.exists():
+        diag = json.loads(p.read_text(encoding="utf-8"))
+    return fus, base, sig, diag
 
 
 def panel_all_splits(ax, fus, base):
@@ -129,37 +134,67 @@ def panel_all_splits(ax, fus, base):
                                 connectionstyle="arc3,rad=-0.2"))
 
 
-def panel_variants(ax, fus, base, sig):
-    """Why removing the learned code beats supplementing it."""
-    order = ["cgcnn", "cgcnn_both", "cgcnn_both_comp", "cgcnn_properties"]
-    vals, names = [], []
-    for k in order:
-        v = (base["cgcnn_element"] if k == "cgcnn"
-             else fus.get(k, {}).get("element", {}).get("test", {}).get("mae"))
-        if v is not None:
-            vals.append(v)
-            names.append(k)
+def panel_variants(ax, fus, base, sig, diag):
+    """Why removing the learned code beats supplementing it.
 
-    y = np.arange(len(names))[::-1].astype(float)
-    for yi, k, v in zip(y, names, vals):
-        title, sub = LABEL[k]
-        ax.text(0.010, yi + 0.44, title, fontsize=9.0, fontweight="bold",
+    The dashed row is not another trained model. It is the SAME 'both' weights
+    with the ten untrained element rows swapped for the average trained row, so
+    the difference isolates those rows instead of confounding them with a new fit.
+    """
+    def mae(k):
+        return (base["cgcnn_element"] if k == "cgcnn"
+                else fus.get(k, {}).get("element", {}).get("test", {}).get("mae"))
+
+    rows = []
+    for k in ("cgcnn", "cgcnn_both"):
+        if mae(k) is not None:
+            rows.append((LABEL[k][0], LABEL[k][1], mae(k), COLOUR[k], False))
+
+    ab = diag.get("ablation", {})
+    if ab.get("mae_rows_replaced"):
+        rows.append(("…with the untrained rows neutralised",
+                     "same weights, no retraining — an ablation, not a model",
+                     ab["mae_rows_replaced"], ACCENT, True))
+
+    for k in ("cgcnn_both_comp", "cgcnn_properties"):
+        if mae(k) is not None:
+            rows.append((LABEL[k][0], LABEL[k][1], mae(k), COLOUR[k], False))
+
+    y = np.arange(len(rows))[::-1].astype(float)
+    for yi, (title, sub, v, col, dashed) in zip(y, rows):
+        ax.text(0.010, yi + 0.42, title, fontsize=8.8, fontweight="bold",
                 color=INK, ha="left", va="center", zorder=6)
-        ax.text(0.010, yi + 0.25, sub, fontsize=7.8, color=MUTED,
+        ax.text(0.010, yi + 0.24, sub, fontsize=7.5, color=MUTED,
                 ha="left", va="center", zorder=6)
-        ax.barh(yi - 0.10, v, height=0.30, color=COLOUR[k], alpha=0.88,
-                edgecolor="white", zorder=3)
-        ax.text(v + 0.02, yi - 0.10, f"{v:.3f}", fontsize=9.6, fontweight="bold",
-                color=COLOUR[k], ha="left", va="center", zorder=6)
+        if dashed:
+            ax.barh(yi - 0.12, v, height=0.26, facecolor="none", edgecolor=col,
+                    linewidth=1.8, linestyle="--", hatch="///", zorder=4)
+        else:
+            ax.barh(yi - 0.12, v, height=0.26, color=col, alpha=0.88,
+                    edgecolor="white", zorder=3)
+        ax.text(v + 0.02, yi - 0.12, f"{v:.3f}", fontsize=9.2, fontweight="bold",
+                color=col, ha="left", va="center", zorder=6)
+
+    # Fraction of the penalty the ablation recovers, computed here rather than
+    # read from the results file, so an older diagnostics JSON still works.
+    prop = mae("cgcnn_properties")
+    if ab.get("mae_as_trained") and ab.get("mae_rows_replaced") and prop:
+        b, a = ab["mae_as_trained"], ab["mae_rows_replaced"]
+        if b > prop:
+            ax.text(0.010, -0.52,
+                    f"neutralising those rows recovers {100 * (b - a) / (b - prop):.0f}% "
+                    f"of the penalty — real, but not all of it",
+                    fontsize=7.9, color=ACCENT, fontweight="bold",
+                    ha="left", va="center", zorder=6)
 
     ax.axvline(base["desc_element"], color=COMPOSITION, ls="--", lw=1.7, zorder=5)
-    ax.text(base["desc_element"] + 0.03, y[0] + 0.86, "chemistry only",
+    ax.text(base["desc_element"] + 0.03, y[0] + 0.82, "chemistry only",
             fontsize=8.0, fontweight="bold", color=COMPOSITION,
             ha="left", va="center", zorder=7,
             bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.95))
 
     ax.set_yticks([])
-    ax.set_ylim(-0.55, len(names) + 0.15)
+    ax.set_ylim(-0.85, len(rows) + 0.10)
     ax.set_xlim(0, 1.30)
     ax.set_xlabel("Error on the unseen-element test  (eV)")
     ax.set_title("B.  Removing the learned code beats supplementing it",
@@ -226,19 +261,19 @@ def panel_predictions(ax, fus, base):
 
 def main() -> None:
     use_house_style()
-    fus, base, sig = load()
+    fus, base, sig, diag = load()
     if not fus:
         raise FileNotFoundError(
             "results/fusion_band_gap_nonmetals.json missing. Run:\n"
             "    python scripts/train_fusion.py --atoms properties --split element --nonmetals")
 
     fig = plt.figure(figsize=(15.6, 10.4))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.15, 1.0],
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.02, 1.0],
                           left=0.055, right=0.975, top=0.845, bottom=0.135,
                           hspace=0.46, wspace=0.17)
 
     panel_all_splits(fig.add_subplot(gs[0, :]), fus, base)
-    panel_variants(fig.add_subplot(gs[1, 0]), fus, base, sig)
+    panel_variants(fig.add_subplot(gs[1, 0]), fus, base, sig, diag)
     panel_predictions(fig.add_subplot(gs[1, 1]), fus, base)
 
     fig.suptitle("Give the network the periodic table and it wins every test",
@@ -252,8 +287,9 @@ def main() -> None:
         "A graph network normally learns a private code for each element from training data. Measured, that code carries almost no chemical structure — chemically alike\n"
         "elements score +0.09 on a similarity contrast where the tabulated properties score +1.04, and random numbers score +0.12. So an element the model never met has a\n"
         "code that means nothing, which is why the error nearly tripled on the strictest test. Replacing the code with tabulated electronegativity, ionic radius, row and\n"
-        "group improves every one of the four tests and turns a 47% loss against chemistry-only into a 4% win. Keeping the code alongside the properties is worse than\n"
-        "removing it: for a held-out element its rows were never trained, and the model cannot switch that route off just for the elements where it is meaningless.",
+        "group improves every one of the four tests and turns a 47% loss against chemistry-only into a 4% win. Keeping the code alongside the properties is worse than removing\n"
+        "it, and the dashed bar tests why: taking those same trained weights and neutralising only the ten untrained element rows recovers 53% of the penalty. The untrained-row\n"
+        "mechanism is therefore real but partial — the other half is still unexplained, and the extra 14,720 parameters are the obvious untested suspect.",
         y=0.012)
 
     OUT.mkdir(parents=True, exist_ok=True)
