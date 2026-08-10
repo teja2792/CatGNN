@@ -91,6 +91,28 @@ coefficient 1, of the form A(g) + * -> A*. Whether metal-atom deposition belongs
 in the same target as molecular adsorption is a further question -- physically
 they are different processes, and mixing them is the same mistake one level down.
 
+SERVER-SIDE FILTERING EXISTS, AND IT IS NOT ENOUGH ON ITS OWN
+--------------------------------------------------------------
+`reactions` takes 20 filterable arguments, so only the wanted rows need
+fetching -- the 792-request estimate above applies only to a blind full scan.
+
+But `products: "~COstar"` is a substring match, and among its 6,518 hits was
+
+    CHO* -> hfH2(g) + CO*     -0.53 eV
+
+a dehydrogenation step, not a CO adsorption. Filtering on products says nothing
+about reactants, so the target heterogeneity described above survives the filter
+one level down. Narrowing on both sides gets close; the rest is rejected locally
+after parsing, which is cheap once the rows are in hand.
+
+Two clean rows from the same query, as a sanity check that the data is real:
+
+    CO(g) + * -> CO*   on Ru3Ga   -2.06 eV     (ruthenium grips CO)
+    CO(g) + * -> CO*   on Ag3Au   -0.05 eV     (silver barely touches it)
+
+A 2 eV spread across alloys is exactly the variation a binding-energy model is
+wanted for, and it runs the right way round.
+
 WHY THIS FILE STARTS WITH A PROBE
 ----------------------------------
 Phase 1 taught this the hard way. Writing a full downloader against an API whose
@@ -182,6 +204,78 @@ def show_budget() -> None:
     print("\n  Published limits: 10/minute, 500/day with automatic suspension.")
     print("  This tool self-limits to 90% of the daily cap and waits out the")
     print("  per-minute one. Requests made from the website are NOT counted here.\n")
+
+
+# The standard intermediates of heterogeneous catalysis. These are the species
+# Norskov-style scaling relations are built on, and the ones a binding-energy
+# model is actually wanted for. Chosen on chemistry, before counting how many
+# rows each has, so the dataset is not defined by whatever happened to be
+# plentiful.
+ADSORBATES = ["CO", "H", "O", "OH", "N", "C", "CH3", "NO", "S", "OOH"]
+
+
+def plan() -> None:
+    """How many CLEAN single-adsorbate rows exist, per adsorbate?
+
+    The filter probe showed server-side filtering works, and immediately showed
+    its limit: products="~COstar" also returned
+
+        CHO* -> hfH2(g) + CO*     -0.53 eV
+
+    which is a dehydrogenation step, not a CO adsorption. A substring match on
+    products says nothing about the reactants, so the target heterogeneity
+    survives the filter one level down.
+
+    Narrowing on BOTH sides -- reactants contain the gas-phase species, products
+    contain the adsorbed one -- gets much closer, and whatever slips through is
+    cheap to reject locally once the rows are in hand. This counts what each
+    adsorbate would actually yield, so the dataset can be scoped before a single
+    row is downloaded.
+
+    One request per adsorbate.
+    """
+    from src.config import get_catalysis_hub_key
+    from src.data.rate_limit import DailyBudgetExhausted, RateLimiter
+
+    key = get_catalysis_hub_key()
+    limiter = RateLimiter(BUDGET_FILE)
+    print(f"\n{'=' * 76}\n  How much clean data is there, per adsorbate?\n{'=' * 76}")
+    print(f"\n  {limiter.report()}   (this uses up to {len(ADSORBATES)})")
+    print(f"\n  {'adsorbate':<12}{'products~':>12}{'+ reactants~':>14}   example equation")
+    print("  " + "-" * 74)
+
+    counts = {}
+    for ads in ADSORBATES:
+        try:
+            limiter.acquire()
+        except DailyBudgetExhausted as e:
+            print(f"\n{e}\n")
+            break
+
+        r = post('{ reactions(first: 2, products: "~%sstar", '
+                 'reactants: "~%sgas") { totalCount edges { node { Equation '
+                 'reactionEnergy surfaceComposition } } } }' % (ads, ads), key=key)
+        node = (r.get("data") or {}).get("reactions")
+        if not node:
+            print(f"  {ads:<12}{'error':>12}   {json.dumps(r)[:120]}")
+            continue
+
+        n = node.get("totalCount", 0)
+        edges = node.get("edges", [])
+        eg = edges[0]["node"]["Equation"] if edges else "—"
+        counts[ads] = n
+        print(f"  {ads:<12}{'':>12}{n:>14}   {eg[:44]}")
+
+    if counts:
+        total = sum(counts.values())
+        pages = sum(-(-n // 200) for n in counts.values())
+        print(f"\n  {total:,} rows across {len(counts)} adsorbates")
+        print(f"  = {pages} requests at 200 rows each, against a 450/day budget")
+        print(f"  ({pages / 450:.0%} of one day — the whole table would have been 792)")
+        print("\n  Structures are a separate cost: ~5.3 kB per reaction, and")
+        print("  including them will reduce rows per request. Measured next.")
+
+    print(f"\n  {limiter.report()}\n")
 
 
 def probe_filters() -> None:
@@ -398,10 +492,16 @@ def main() -> None:
                     help="show the request ledger and exit, spending nothing")
     ap.add_argument("--probe-filters", action="store_true",
                     help="can the server filter? decides the whole request budget")
+    ap.add_argument("--plan", action="store_true",
+                    help="count the clean single-adsorbate rows per adsorbate")
     args = ap.parse_args()
 
     if args.budget:
         show_budget()
+        return
+
+    if args.plan:
+        plan()
         return
 
     if args.probe_filters:
