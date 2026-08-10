@@ -92,6 +92,10 @@ RAW = REPO / "data" / "raw"
 # and hand the account a fresh 450 requests it has not got.
 BUDGET_FILE = REPO / "data" / "cache" / "catalysis_hub_budget.json"
 
+# Stated up front so the cost is known before anything is spent: one
+# introspection, one sample, two row-cap probes, one structure probe.
+MAX_PROBE_REQUESTS = 5
+
 
 def post(query: str, timeout: int = 60, key: str | None = None) -> dict:
     """One GraphQL request. urllib only, so there is no new dependency.
@@ -131,6 +135,25 @@ def post(query: str, timeout: int = 60, key: str | None = None) -> dict:
         sys.exit(1)
 
 
+def show_budget() -> None:
+    """Report the ledger without making a request.
+
+    Exists so "how many have I used?" never has to be answered by trying one and
+    seeing what happens, which is the sort of thing that costs an account.
+    """
+    from src.data.rate_limit import RateLimiter
+
+    limiter = RateLimiter(BUDGET_FILE)
+    print(f"\n  {limiter.report()}")
+    print(f"  ledger: {BUDGET_FILE}")
+    wait = limiter.seconds_until_free()
+    if wait > 0:
+        print(f"  budget exhausted; frees up in {wait / 3600:.1f} hours")
+    print("\n  Published limits: 10/minute, 500/day with automatic suspension.")
+    print("  This tool self-limits to 90% of the daily cap and waits out the")
+    print("  per-minute one. Requests made from the website are NOT counted here.\n")
+
+
 def probe() -> None:
     """Look at the API before writing anything that depends on its shape.
 
@@ -158,6 +181,8 @@ def probe() -> None:
 
     limiter = RateLimiter(BUDGET_FILE)
     print(f"  {limiter.report()}")
+    print(f"  this probe will make at most {MAX_PROBE_REQUESTS} requests, each one")
+    print("  checked against the ledger before it is sent")
 
     def ask(query: str) -> dict:
         limiter.acquire()
@@ -266,7 +291,13 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--probe", action="store_true",
                     help="inspect the API and stop (do this first)")
+    ap.add_argument("--budget", action="store_true",
+                    help="show the request ledger and exit, spending nothing")
     args = ap.parse_args()
+
+    if args.budget:
+        show_budget()
+        return
 
     if args.probe:
         probe()
