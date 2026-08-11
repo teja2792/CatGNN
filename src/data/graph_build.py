@@ -56,7 +56,7 @@ Z_OF = {s: i + 1 for i, s in enumerate(_SYMBOLS)}
 # Geometry
 # ---------------------------------------------------------------------------
 
-def image_range(lattice: np.ndarray, cutoff: float) -> np.ndarray:
+def image_range(lattice: np.ndarray, cutoff: float, pbc=None) -> np.ndarray:
     """How many cell repeats are needed in each direction to cover ``cutoff``.
 
     The distance between opposite faces of the cell along axis *i* is not the
@@ -64,6 +64,13 @@ def image_range(lattice: np.ndarray, cutoff: float) -> np.ndarray:
     perpendicular width, volume / |a_j x a_k|. Using the vector length instead
     under-counts images for triclinic cells and silently truncates their
     neighbour lists.
+
+    ``pbc`` marks which axes repeat. Bulk crystals repeat in all three and that
+    is the default. A SLAB does not: it is periodic in the two surface directions
+    and finite along the normal, with vacuum above it. Passing
+    ``pbc=(True, True, False)`` there is not a refinement -- repeating a slab
+    along its normal would stack it on top of its own vacuum and invent a second
+    surface that does not exist.
     """
     a, b, c = lattice
     volume = abs(float(np.dot(a, np.cross(b, c))))
@@ -75,7 +82,10 @@ def image_range(lattice: np.ndarray, cutoff: float) -> np.ndarray:
         volume / np.linalg.norm(np.cross(c, a)),
         volume / np.linalg.norm(np.cross(a, b)),
     ])
-    return np.ceil(cutoff / widths).astype(int)
+    n = np.ceil(cutoff / widths).astype(int)
+    if pbc is not None:
+        n = np.where(np.asarray(pbc, dtype=bool), n, 0)
+    return n
 
 
 def _offsets(n: np.ndarray) -> np.ndarray:
@@ -89,6 +99,7 @@ def neighbour_list(
     frac_coords: np.ndarray,
     cutoff: float = CUTOFF_ANGSTROM,
     max_neighbours: int = MAX_NEIGHBOURS,
+    pbc=None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Neighbours of every atom, honouring periodic boundaries.
 
@@ -99,12 +110,15 @@ def neighbour_list(
 
     Each atom keeps at most ``max_neighbours`` closest contacts, the CGCNN
     convention. This bounds the graph size for dense structures.
+
+    ``pbc`` defaults to periodic in all three directions. Slabs must pass
+    ``(True, True, False)``; see ``image_range``.
     """
     lattice = np.asarray(lattice, dtype=np.float64)
     frac = np.asarray(frac_coords, dtype=np.float64)
     n_atoms = len(frac)
 
-    shifts = _offsets(image_range(lattice, cutoff)) @ lattice   # (S, 3) cartesian
+    shifts = _offsets(image_range(lattice, cutoff, pbc)) @ lattice   # (S, 3) cartesian
     cart = frac @ lattice                                       # (N, 3)
 
     # (N_target, S, 3) -> every image of every atom, relative to each source atom

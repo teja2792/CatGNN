@@ -371,7 +371,54 @@ Measured on the real table: median within-surface energy spread **1.45 eV**, aga
 a composition-only floor of 0.806 eV. The signal is present. Whether the model finds
 it is the experiment.
 
-## 18. Single author, no independent replication
+## 18. The periodic-boundary flags in the downloaded geometries are wrong
+
+Catalysis-Hub returns geometries as ASE database JSON, which carries a periodic-
+boundary flag. Across all 1,191 systems fetched:
+
+| system | count | flag says |
+|---|---|---|
+| gas-phase CO molecules | 397 of 397 | periodic in all three directions |
+| slabs | 584 of 794 | periodic in **none** |
+
+Both are wrong. A lone CO molecule in a 15 Å box is not periodic in anything, and
+a slab is periodic in its two surface directions — that is what makes it a surface
+rather than a cluster. 26 of the 36 surfaces contain systems that disagree with
+*each other*, so the field does not track the material; it records however each
+entry happened to be written.
+
+Trusting it would have cost **34% of all bonds**, measured. The in-plane cells here
+are 2.8–8.1 Å against an 8 Å cutoff, so a non-periodic slab loses most of every
+atom's real neighbours, and loses most from the atoms at the cell boundary.
+Coordination number is the strongest simple structural determinant of binding
+energy — the basis of the generalised-coordination-number model of Calle-Vallejo
+et al. (*Science* **350**, 185, 2015). The resulting dataset would have trained,
+converged, and reported an RMSE while describing surfaces that do not exist.
+
+Periodicity is therefore decided from the geometry, which was measured, not the
+flag, which contradicts itself. The populations separate with no overlap: slabs
+have ≥20 atoms and 2.8–8.1 Å in-plane cells; gas molecules have ≤3 atoms and 15 Å
+boxes. The resulting graphs pass a physical check the flag-derived ones fail —
+outermost-layer atoms come out at **0.71×** the coordination of interior atoms,
+which is why surfaces bind anything at all.
+
+This is a limitation of the source data that is handled, not one that is
+outstanding. It is recorded because the failure was silent, and because anyone
+else building on Catalysis-Hub geometries will hit it.
+
+## 19. `MAX_SITES = 30` does not apply to slabs, and applying it would bias the set
+
+The bulk-crystal pipeline drops cells above 30 atoms so a handful of 100-atom
+structures do not dominate every epoch on a laptop. Slabs are simply bigger: 20 to
+114 atoms, median 34, with **67% above 30**.
+
+Applying the bulk cap would have discarded two thirds of the data and kept the
+small cells — which are the small *surface unit cells*, that is, the high-symmetry
+close-packed facets. The survivors would have been a biased sample of easy
+surfaces and the bias would not have been visible in any result. Slabs use a
+separate `SLAB_MAX_ATOMS = 200` cap, which nothing in the current sample reaches.
+
+## 20. Single author, no independent replication
 
 Everything here was built and checked by one person. The mitigations — assertions
 that fail loudly, figures regenerated from source data rather than hand-edited, CI on
