@@ -742,6 +742,12 @@ def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
                     continue
 
     todo = [r for r in sample if r["id"] not in have]
+    # Rows already paid for that this sample no longer wants. Loud, because the
+    # selector picks surfaces at evenly spaced ranks: changing --surfaces
+    # reshuffles WHICH ranks are picked, so a wider sample is not automatically a
+    # superset of a narrower one. Stranding 140 rows is a third of a budget day
+    # spent on data that leaves the study, and nothing else would report it.
+    stranded = have - {r["id"] for r in sample}
     limiter = RateLimiter(BUDGET_FILE)
 
     print(f"\n{'=' * 76}\n  Catalysis-Hub: slab geometries for the chosen sample"
@@ -753,7 +759,10 @@ def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
           f"{desc['median_within_surface_spread_eV']:.2f} eV")
     print("      ^ this is the signal being bought. A model that only knows the")
     print("        surface predicts one number for all 10 sites and cannot get")
-    print("        inside this spread; the composition ceiling is 0.806 eV.")
+    print("        inside this spread at all. The exact ceiling depends on the")
+    print("        sample and is measured by scripts/build_slab_graphs.py --")
+    print("        1.189 eV on the first 400 rows, against 0.806 eV on the full")
+    print("        table, because a site-rich sample is HARDER for composition.")
 
     print("\n  What the sample is NOT (state this, do not discover it later)")
     for label, field in (("publications", "publications"), ("functionals", "functionals")):
@@ -763,6 +772,14 @@ def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
     if len(desc["publications"]) == 1:
         print("    -> one publication, so NO publication-disjoint split is possible")
         print("       here. The surface-disjoint split is, and is the honest test.")
+
+    if stranded:
+        print(f"\n  WARNING: {len(stranded)} rows already on disk are NOT in this")
+        print("    sample. They were paid for and this selection abandons them.")
+        print("    Surfaces are picked at evenly spaced ranks, so a wider sample")
+        print("    is not automatically a superset. --surfaces 95 (every eligible")
+        print("    surface) is; intermediate values are not.")
+        print(f"    Continuing wastes {len(stranded)} requests' worth of budget.")
 
     print(f"\n  Cost\n    {len(sample)} rows, {len(have)} already fetched, "
           f"{len(todo)} to go, 1 request each")
