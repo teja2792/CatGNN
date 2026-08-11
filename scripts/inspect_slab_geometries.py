@@ -28,6 +28,28 @@ FOUR CHECKS THAT WORKED
    reach about -4 eV on very reactive carbides and nitrides; -11 eV is not a
    credible molecular adsorption energy.
 
+WHAT THE CLEAN-SLAB REFERENCE DOES AND DOES NOT EXPLAIN
+-------------------------------------------------------
+The natural suspect for the implausible rows is the clean-slab reference: if
+E(slab) is wrong, every adsorption energy on that surface shifts with it. Two
+measurements, at 847 rows:
+
+*It cannot explain the within-surface spread.* Every row in a (surface, facet)
+group references the SAME clean-slab energy -- 0 of 85 groups use more than one.
+So for `WN2-mp-754629-D|100`, whose ten rows run from -11.38 to +5.23 eV against
+one fixed reference of -333.191 eV, the entire 16.6 eV spread lives in the
+ADSORBED structures. Those relaxations ended somewhere very different from each
+other, which is the reconstruction question below, still untested.
+
+*It may explain the group's overall offset.* That same clean slab is -9.255
+eV/atom while the other facet of the same material is -9.601. Over 36 atoms the
+difference is 12.5 eV, which is the right size to move a normal -1 eV adsorption
+energy to -11 eV.
+
+But the pattern does not generalise: `PdN2-mp-1019239-B` has clean slabs within
+0.038 eV/atom on its two facets and only one of them is flagged. So there is no
+single cause, and the rows stay flagged rather than corrected.
+
 ONE CHECK THAT DID NOT WORK, RECORDED BECAUSE IT LOOKED LIKE IT DID
 ------------------------------------------------------------------
 The obvious explanation for the extreme values is surface reconstruction: if the

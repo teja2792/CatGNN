@@ -10,14 +10,14 @@ src/data/slab_graph.py and LIMITATIONS 18.
 
 **Measure the ceiling ON THIS SAMPLE.** The full CO table has a composition-only
 floor of 0.806 eV. Quoting that as the number to beat would be a comparison
-against a different dataset: these 400 rows are 40 surfaces x 10 sites, chosen to
-be rich in the within-surface variation that composition cannot see, so they are
-a HARDER set for a composition model than the full table is. Measured here, the
-surface+facet floor is 1.189 eV, not 0.806, and surface+facet explains only 44%
-of the variance rather than 57%.
+against a different dataset: the sample is N surfaces x 10 sites, chosen to be
+rich in the within-surface variation that composition cannot see, so it is a
+HARDER set for a composition model than the full table is. Measured: 1.189 eV at
+400 rows, 1.097 eV at 847 rows, against 0.806 eV on the full table.
 
-Beating 1.189 is the honest claim. Beating 0.806 would be arithmetic performed on
-two different populations, and it would flatter the result by about 0.4 eV.
+The number to beat is whatever THIS run prints, which is why it is computed here
+rather than quoted from anywhere. Beating 0.806 would be arithmetic performed on
+two different populations, and it would flatter the result by about 0.3 eV.
 
 Run:  python scripts/build_slab_graphs.py
 """
@@ -178,7 +178,7 @@ def main() -> None:
     print(f"\n  {1 - r2_sf:.0%} of the variance here is WHICH SITE the CO sits on.")
     print("  No composition or formula model can reach it, however good. That is")
     print("  the part geometry was bought to explain.")
-    print("\n  NOTE: the full 3,554-row CO table gives 0.806 eV. These 400 rows")
+    print(f"\n  NOTE: the full 3,554-row CO table gives 0.806 eV. These {len(meta)} rows")
     print(f"  give {r_sf:.3f} eV because they were chosen to be site-rich, which makes")
     print("  them HARDER for a composition model. Beating 0.806 here would be a")
     print("  comparison between two different populations.")
@@ -203,7 +203,7 @@ def main() -> None:
         "cutoff": args.cutoff, "max_neighbours": args.max_neighbours,
         "ceiling_surface_facet_eV": round(r_sf, 4),
         "ceiling_r2": round(r2_sf, 4),
-        "ceiling_note": "measured on THESE 400 rows, not the 3,554-row table "
+        "ceiling_note": f"measured on THESE {len(meta)} rows, not the 3,554-row table "
                         "(0.806 eV). The sample is site-rich by design, which "
                         "makes it harder for a composition model.",
         "target_std_eV": round(float(y.std()), 4),

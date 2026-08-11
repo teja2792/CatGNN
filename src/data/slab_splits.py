@@ -1,14 +1,14 @@
 """Train/val/test splits for the catalysis set, and why the obvious one is wrong.
 
-The sample is 10 sites on each of 40 surfaces. That structure makes the default
-choice actively misleading.
+The sample is 10 sites on each of many surfaces (40 at 400 rows, 85 at 847).
+That structure makes the default choice actively misleading.
 
-**A random split leaks.** Put the 400 rows in a hat and draw 20% for testing, and
-almost every test row comes from a surface whose other nine sites are in training.
-A model can then score well by learning each surface's mean binding energy and
-applying it to the held-out sites -- which is exactly the composition baseline of
-1.189 eV, reproduced by a graph network and reported as if the network had learned
-site chemistry. Nothing in the RMSE distinguishes the two.
+**A random split leaks.** Put the rows in a hat and draw 20% for testing, and
+almost every test row comes from a surface whose other nine sites are in training
+-- measured at 100%, not "almost". A model can then score well by learning each
+surface's mean binding energy and applying it to the held-out sites, and be
+reported as if the network had learned site chemistry. Nothing in the RMSE
+distinguishes the two.
 
 **A surface-disjoint split cannot be gamed that way.** Whole (surface, facet)
 groups go to one partition only. A test surface has never been seen, so its mean
