@@ -40,13 +40,14 @@ def surface_key(row: dict) -> str:
 def random_split(rows, fractions=DEFAULT_FRACTIONS, seed: int = 42) -> dict:
     """Rows shuffled and cut. Leaks by construction; kept as the control."""
     rng = np.random.default_rng(seed)
+    ids = np.array([r["id"] for r in rows])
     idx = np.arange(len(rows))
     rng.shuffle(idx)
     n_tr = int(round(fractions[0] * len(rows)))
     n_va = int(round(fractions[1] * len(rows)))
-    return {"train": sorted(idx[:n_tr].tolist()),
-            "val": sorted(idx[n_tr:n_tr + n_va].tolist()),
-            "test": sorted(idx[n_tr + n_va:].tolist())}
+    return {"train": sorted(ids[idx[:n_tr]].tolist()),
+            "val": sorted(ids[idx[n_tr:n_tr + n_va]].tolist()),
+            "test": sorted(ids[idx[n_tr + n_va:]].tolist())}
 
 
 def surface_split(rows, fractions=DEFAULT_FRACTIONS, seed: int = 42) -> dict:
@@ -61,16 +62,16 @@ def surface_split(rows, fractions=DEFAULT_FRACTIONS, seed: int = 42) -> dict:
     order rows happened to be built in.
     """
     rng = np.random.default_rng(seed)
-    groups: dict[str, list[int]] = defaultdict(list)
-    for i, r in enumerate(rows):
-        groups[surface_key(r)].append(i)
+    groups: dict[str, list[str]] = defaultdict(list)
+    for r in rows:
+        groups[surface_key(r)].append(r["id"])
 
     keys = sorted(groups)
     rng.shuffle(keys)
     keys.sort(key=lambda k: -len(groups[k]))
 
     quota = [f * len(rows) for f in fractions]
-    buckets: list[list[int]] = [[], [], []]
+    buckets: list[list[str]] = [[], [], []]
     filled = [0.0, 0.0, 0.0]
     for k in keys:
         deficit = [(filled[i] / quota[i] if quota[i] else 1.0) for i in range(3)]
@@ -89,8 +90,9 @@ def leakage_report(rows, split: dict) -> dict:
     can predict the tenth from their mean. For a surface-disjoint split it must
     be exactly 0, and that is asserted rather than hoped for.
     """
-    tr = {surface_key(rows[i]) for i in split["train"]}
-    te = [surface_key(rows[i]) for i in split["test"]]
+    by_id = {r["id"]: r for r in rows}
+    tr = {surface_key(by_id[i]) for i in split["train"] if i in by_id}
+    te = [surface_key(by_id[i]) for i in split["test"] if i in by_id]
     seen = sum(1 for k in te if k in tr)
     return {
         "test_rows": len(te),
@@ -114,9 +116,10 @@ def group_mean_baseline(y: np.ndarray, rows, split: dict) -> float:
     when the surface is new, and a graph model that cannot beat it there has not
     learned structure.
     """
-    tr_idx = np.array(split["train"], dtype=int)
-    te_idx = np.array(split["test"], dtype=int)
-    if te_idx.size == 0:
+    pos = {r["id"]: k for k, r in enumerate(rows)}
+    tr_idx = np.array([pos[i] for i in split["train"] if i in pos], dtype=int)
+    te_idx = np.array([pos[i] for i in split["test"] if i in pos], dtype=int)
+    if te_idx.size == 0 or tr_idx.size == 0:
         return float("nan")
 
     sums: dict[str, list] = defaultdict(list)
