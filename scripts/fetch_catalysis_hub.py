@@ -703,6 +703,55 @@ def main() -> None:
 
 GEOM_FILE = OUT_DIR / "geometries.jsonl"
 GEOM_MANIFEST = OUT_DIR / "geometries_manifest.json"
+GEOM_FAILED = REPO / "data" / "cache" / "catalysis_hub_failed.json"
+
+
+def post_or_none(query: str, key: str, attempts: int = 3, limiter=None):
+    """One request, retried on a SERVER fault, returning None if it will not work.
+
+    Exists because `post()` calls sys.exit on any HTTP error, and that turned one
+    transient HTTP 500 into the loss of a 60-minute download that had already
+    spent budget. A row-at-a-time fetch makes ~600 requests over an hour; the
+    probability of at least one 5xx in that window is not small, and aborting is
+    the wrong response to it.
+
+    Distinguishes the two cases that matter:
+      * 5xx and network errors are the SERVER's problem and usually transient,
+        so they are retried with backoff.
+      * 4xx means the request itself is wrong -- a bad key, a row that does not
+        exist -- and retrying it would burn budget to get the same answer, so it
+        returns immediately.
+
+    Every attempt is a request and is charged to the ledger BEFORE it is made,
+    because the server counts attempts, not successes.
+    """
+    import urllib.error
+    import urllib.request
+
+    headers = {"Content-Type": "application/json",
+               "User-Agent": "CatGNN/0.1 (github.com/teja2792/CatGNN)",
+               "X-API-Key": key}
+    body = json.dumps({"query": query}).encode("utf-8")
+
+    for attempt in range(attempts):
+        if limiter is not None:
+            limiter.acquire()          # may raise DailyBudgetExhausted; correct
+        try:
+            req = urllib.request.Request(API, data=body, headers=headers)
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code < 500:
+                return None            # our fault; retrying cannot help
+            last = f"HTTP {e.code}"
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+            last = str(e)
+        if attempt < attempts - 1:
+            import time as _t
+            _t.sleep(5.0 * (attempt + 1) ** 2)
+        else:
+            print(f"      giving up on this row after {attempts} attempts ({last})")
+    return None
 
 
 def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
@@ -823,6 +872,8 @@ def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
     t0 = time.time()
     done = kept = nogeom = 0
     stopped = None
+    consecutive_failures = 0
+    failed: list[str] = []
 
     with GEOM_FILE.open("a", encoding="utf-8") as out:
         for r in todo:
@@ -830,16 +881,32 @@ def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
             if rid is None:
                 nogeom += 1
                 continue
-            try:
-                limiter.acquire()
-            except DailyBudgetExhausted as e:
-                stopped = e
-                break
 
             q = ('{ reactions(id: %d) { edges { node { id reactionEnergy '
                  'systems { Formula energy InputFile(format: "json") } } } } }' % rid)
-            node = (post(q, key=key).get("data") or {}).get("reactions")
+            try:
+                resp = post_or_none(q, key, limiter=limiter)
+            except DailyBudgetExhausted as e:
+                stopped = e
+                break
             done += 1
+
+            if resp is None:
+                # The row is skipped, not fatal, and recorded so a later run can
+                # try it again. One bad row must not end a download that has
+                # already spent an hour of budget.
+                failed.append(r["id"])
+                consecutive_failures += 1
+                if consecutive_failures >= 10:
+                    print("\n  10 consecutive failures -- the API looks down.")
+                    print("  Stopping so the rest of the budget is not spent on")
+                    print("  errors. Re-run later; progress so far is on disk.")
+                    stopped = "api_down"
+                    break
+                continue
+            consecutive_failures = 0
+
+            node = (resp.get("data") or {}).get("reactions")
             edges = (node or {}).get("edges") or []
             if not edges:
                 nogeom += 1
@@ -872,12 +939,21 @@ def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
     print(f"  {done:>6}{kept:>7}{nogeom:>9}{el / 60:>9.1f}m   "
           f"{'budget reached' if stopped else 'sample complete'}")
 
+    if failed:
+        GEOM_FAILED.write_text(json.dumps(sorted(set(failed)), indent=2),
+                               encoding="utf-8")
+        print(f"\n  {len(failed)} rows failed and were skipped; ids recorded in")
+        print(f"  {GEOM_FAILED.relative_to(REPO)}. Re-running retries them.")
+
     total = len(have) + kept
     print(f"\n  {total} rows with geometry in {GEOM_FILE.relative_to(REPO)}")
     print(f"  {limiter.report()}")
     _write_geometry_manifest(desc, total, n_surfaces, sites_per_surface)
 
-    if stopped:
+    if stopped == "api_down":
+        print("\n  Stopped because the API was failing, not because the budget\n"
+              "  ran out. Re-run when it recovers.\n")
+    elif stopped:
         print(f"\n{stopped}\n")
         print("  Re-run tomorrow. The sample is deterministic and rows already\n"
               "  on disk are skipped, so nothing is paid for twice.\n")

@@ -1,0 +1,30 @@
+{
+  "split": "surface",
+  "model": "site",
+  "rows_kept": 817,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "dropped_implausible": true,
+  "dropped_subsurface": false,
+  "shuffled_labels": false,
+  "leakage": {
+    "test_rows": 125,
+    "test_surfaces": 13,
+    "test_rows_on_a_training_surface": 0,
+    "leak_fraction": 0.0,
+    "train_surfaces": 59
+  },
+  "baseline_eV": 0.9255,
+  "test_rmse_eV": 0.768,
+  "test_rmse_ci95": [
+    0.6041,
+    0.929
+  ],
+  "test_mae_eV": 0.4984,
+  "test_r2": 0.2381,
+  "parameters": 89537,
+  "parameters_per_training_row": 158.2
+}
