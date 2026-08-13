@@ -663,7 +663,13 @@ def main() -> None:
     ap.add_argument("--surfaces", type=int, default=40,
                     help="how many surfaces in the geometry sample")
     ap.add_argument("--sites", type=int, default=10,
-                    help="how many sites per surface in the geometry sample")
+                    help="how many rows to take from each qualifying surface")
+    ap.add_argument("--min-sites", type=int, default=None,
+                    help="how many sites a surface needs to QUALIFY (default: "
+                         "same as --sites). Hold this fixed while raising "
+                         "--sites to widen the sample without stranding rows.")
+    ap.add_argument("--allow-strand", action="store_true",
+                    help="proceed even if the sample abandons rows already paid for")
     args = ap.parse_args()
 
     if args.budget:
@@ -672,7 +678,8 @@ def main() -> None:
 
     if args.geometries:
         geometries(n_surfaces=args.surfaces, sites_per_surface=args.sites,
-                   dry_run=args.dry_run)
+                   dry_run=args.dry_run, min_sites=args.min_sites,
+                   allow_strand=args.allow_strand)
         return
 
     if args.probe_structures:
@@ -699,7 +706,8 @@ GEOM_MANIFEST = OUT_DIR / "geometries_manifest.json"
 
 
 def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
-               dry_run: bool = False) -> None:
+               dry_run: bool = False, min_sites: int | None = None,
+               allow_strand: bool = False) -> None:
     """Fetch slab geometries, one request per row, for a deliberately chosen sample.
 
     This is the expensive mode and the one the phase turns on. The metadata
@@ -728,7 +736,8 @@ def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
         sys.exit(1)
 
     rows = load_rows(ROWS_FILE)
-    sample = select(rows, n_surfaces=n_surfaces, sites_per_surface=sites_per_surface)
+    sample = select(rows, n_surfaces=n_surfaces, sites_per_surface=sites_per_surface,
+                    min_sites=min_sites)
     desc = describe(sample)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -774,12 +783,21 @@ def geometries(n_surfaces: int = 40, sites_per_surface: int = 10,
         print("       here. The surface-disjoint split is, and is the honest test.")
 
     if stranded:
-        print(f"\n  WARNING: {len(stranded)} rows already on disk are NOT in this")
-        print("    sample. They were paid for and this selection abandons them.")
-        print("    Surfaces are picked at evenly spaced ranks, so a wider sample")
-        print("    is not automatically a superset. --surfaces 95 (every eligible")
-        print("    surface) is; intermediate values are not.")
-        print(f"    Continuing wastes {len(stranded)} requests' worth of budget.")
+        print(f"\n  REFUSING TO RUN: {len(stranded)} rows already on disk are not in")
+        print("    this sample. They cost one request each against a 450/day cap,")
+        print("    and this selection would abandon them.")
+        print("\n    Two causes, both fixable without spending anything:")
+        print("      * --surfaces changed. Surfaces are picked at evenly spaced")
+        print("        ranks, so a wider sample is NOT automatically a superset.")
+        print("      * --sites raised without --min-sites. Raising --sites also")
+        print("        raises the qualifying bar and drops smaller groups.")
+        print("\n    To widen safely, keep --min-sites at the value already used")
+        print(f"    ({sites_per_surface if min_sites is None else min_sites} here) and raise --sites:")
+        print(f"      --surfaces {n_surfaces} --min-sites 10 --sites {sites_per_surface + 5}")
+        print("\n    Override with --allow-strand only if abandoning them is intended.")
+        if not allow_strand:
+            sys.exit(1)
+        print("\n    --allow-strand given; continuing anyway.")
 
     print(f"\n  Cost\n    {len(sample)} rows, {len(have)} already fetched, "
           f"{len(todo)} to go, 1 request each")

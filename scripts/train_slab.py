@@ -101,9 +101,13 @@ def main() -> None:
                     help="run several seeds and report spread. A single seed on "
                          "13 held-out surfaces cannot distinguish a result from "
                          "noise, and every earlier number here was one seed.")
-    ap.add_argument("--model", choices=["cgcnn", "site"], default="site",
-                    help="cgcnn = mean over all atoms (the control); "
-                         "site = mean over the binding site + global context")
+    ap.add_argument("--model", choices=["cgcnn", "site", "site_feat"],
+                    default="site_feat",
+                    help="cgcnn = mean over ALL atoms, no extra features (the "
+                         "round-1 control); site = site readout only; "
+                         "site_feat = site readout + 4 per-atom descriptors. "
+                         "Three variants so the readout and the features can be "
+                         "attributed separately.")
     ap.add_argument("--shuffle-labels", action="store_true",
                     help="control: permute targets. Any skill left is a bug.")
     args = ap.parse_args()
@@ -163,8 +167,17 @@ def main() -> None:
           f"{y_kept[[k for k, r in enumerate(kept) if r['id'] in set(split['test'])]].std():.3f} eV")
 
     seeds = args.seeds if args.seeds else [args.seed]
-    Model = SiteCGCNN if args.model == "site" else CGCNN
-    print(f"\n  readout: {'binding site + global' if args.model == 'site' else 'mean over ALL atoms (control)'}")
+    if args.model == "cgcnn":
+        def Model(): return CGCNN()
+    elif args.model == "site":
+        def Model(): return SiteCGCNN(use_features=False)
+    else:
+        def Model(): return SiteCGCNN(use_features=True)
+    print("\n  " + {"cgcnn": "readout: mean over ALL atoms   features: none   (round-1 control)",
+                     "site": "readout: binding site + global   features: none",
+                     "site_feat": "readout: binding site + global   features: "
+                                  "is_adsorbate, is_site, height, coordination",
+                     }[args.model])
 
     runs = []
     for si, sd in enumerate(seeds):

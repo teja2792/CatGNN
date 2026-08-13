@@ -167,3 +167,44 @@ def test_the_description_reports_within_surface_spread():
 
 def test_describe_survives_an_empty_sample():
     assert describe([])["rows"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Widening the sample must never abandon rows already paid for
+# ---------------------------------------------------------------------------
+
+def test_raising_sites_alone_silently_drops_surfaces():
+    """The trap. Documented as a test so it cannot be reintroduced by someone
+    who assumes a bigger sample is a bigger sample."""
+    rows = []
+    for s in range(10):
+        for j in range(10 + s):              # groups of size 10 .. 19
+            rows.append(row(s * 100 + j, surf=f"M{s}", e=0.1 * j))
+    at10 = {r["id"] for r in select(rows, 10, 10)}
+    at12 = {r["id"] for r in select(rows, 10, 12)}
+    assert at10 - at12, "expected the qualifying bar to drop the smaller groups"
+
+
+def test_holding_min_sites_fixed_makes_widening_purely_additive():
+    """The fix, and the property a multi-day download depends on."""
+    rows = []
+    for s in range(10):
+        for j in range(10 + s):
+            rows.append(row(s * 100 + j, surf=f"M{s}", e=0.1 * j))
+    base = {r["id"] for r in select(rows, 10, 10, min_sites=10)}
+    for take in (12, 15, 20, 40):
+        wider = {r["id"] for r in select(rows, 10, take, min_sites=10)}
+        assert base <= wider, f"--sites {take} stranded {len(base - wider)} rows"
+
+
+def test_min_sites_defaults_to_sites_so_old_calls_are_unchanged():
+    rows = [row(i, surf=f"M{i // 12}", e=0.1 * i) for i in range(60)]
+    assert [r["id"] for r in select(rows, 5, 10)] == \
+           [r["id"] for r in select(rows, 5, 10, min_sites=10)]
+
+
+def test_a_surface_never_contributes_more_rows_than_it_has():
+    rows = [row(i, surf=f"M{i // 11}", e=0.1 * i) for i in range(55)]
+    s = select(rows, 5, 40, min_sites=10)
+    from collections import Counter
+    assert max(Counter(r["surfaceComposition"] for r in s).values()) <= 11

@@ -119,19 +119,34 @@ def eligible_rows(rows, adsorbate: str = "CO", functional: str = FUNCTIONAL):
 
 
 def select(rows, n_surfaces: int = 40, sites_per_surface: int = 10,
-           adsorbate: str = "CO", functional: str = FUNCTIONAL) -> list[dict]:
+           adsorbate: str = "CO", functional: str = FUNCTIONAL,
+           min_sites: int | None = None) -> list[dict]:
     """The sample. Deterministic, so a resumed download needs no stored plan.
 
     Groups are size-sorted, then picked at evenly spaced ranks rather than from
     the top, so the sample is not just the most-studied surfaces. Within a group
     rows are ordered by id, which is arbitrary with respect to energy and
     therefore does not select for strong or weak binding.
+
+    ``min_sites`` is which groups QUALIFY; ``sites_per_surface`` is how many rows
+    are taken from each. They default to the same value, and separating them is
+    the only way to widen the sample without stranding rows already paid for.
+
+    The trap this exists to close: raising ``sites_per_surface`` from 10 to 12
+    also raises the qualifying bar to 12, which drops every group with exactly
+    10 or 11 sites. The sample then loses surfaces it previously had, and the
+    geometries fetched for them -- one request each, against a 450/day budget --
+    leave the study. Holding ``min_sites`` fixed at 10 while raising
+    ``sites_per_surface`` keeps the same qualifying groups and only ever ADDS
+    rows, which is what makes a multi-day download safe to extend.
     """
+    min_sites = sites_per_surface if min_sites is None else min_sites
+
     groups: dict[tuple, list] = defaultdict(list)
     for r in eligible_rows(rows, adsorbate, functional):
         groups[group_key(r)].append(r)
 
-    big = [k for k, v in groups.items() if len(v) >= sites_per_surface]
+    big = [k for k, v in groups.items() if len(v) >= min_sites]
     # Sort by size then key: ties in size must not depend on dict ordering, or
     # two runs of the same code could disagree about which rows are in the study.
     big.sort(key=lambda k: (-len(groups[k]), str(k)))

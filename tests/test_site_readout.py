@@ -180,3 +180,91 @@ def test_every_adsorbate_atom_is_in_its_own_site():
     except FileNotFoundError:
         pytest.skip("slab graphs not built")
     assert bool(store.site_mask[store.is_adsorbate].all())
+
+
+# ---------------------------------------------------------------------------
+# The four per-atom descriptors
+# ---------------------------------------------------------------------------
+
+def feat_batch(n=6):
+    b = toy_batch(n_atoms=n, n_site=2)
+    b["is_adsorbate"] = torch.zeros(n, dtype=torch.bool)
+    b["is_adsorbate"][:1] = True
+    b["height"] = torch.arange(n, dtype=torch.float32)
+    b["coordination"] = torch.full((n,), 6.0)
+    return b
+
+
+def test_the_feature_columns_are_in_the_documented_order():
+    """An insertion that shifts these would feed coordination into the height
+    slot. The model would still train, on a different physical quantity."""
+    b = feat_batch()
+    f = SiteCGCNN.node_features(b)
+    from src.models.site_cgcnn import COORDINATION_SCALE, HEIGHT_SCALE
+    assert torch.allclose(f[:, 0], b["is_adsorbate"].float())
+    assert torch.allclose(f[:, 1], b["site_mask"].float())
+    assert torch.allclose(f[:, 2], b["height"] / HEIGHT_SCALE)
+    assert torch.allclose(f[:, 3], b["coordination"] / COORDINATION_SCALE)
+
+
+def test_the_scales_are_fixed_constants_not_fitted_to_the_data():
+    """A scaler fitted over the whole set would put test statistics into the
+    training inputs. Small leak, real, and invisible."""
+    a = SiteCGCNN.node_features(feat_batch(6))
+    b = feat_batch(6)
+    b["coordination"] = torch.full((6,), 12.0)      # a different "dataset"
+    assert torch.allclose(SiteCGCNN.node_features(b)[:, 3], torch.ones(6))
+    assert torch.allclose(a[:, 3], torch.full((6,), 0.5))
+
+
+def test_the_feature_model_refuses_a_batch_without_them():
+    """Zero-filling would give a model that appears to use these and does not."""
+    model = SiteCGCNN(CGCNNConfig(n_conv=1), use_features=True).eval()
+    b = toy_batch()
+    with pytest.raises(KeyError):
+        model(b)
+
+
+def test_features_can_be_switched_off_so_the_readout_can_be_attributed_alone():
+    model = SiteCGCNN(CGCNNConfig(n_conv=1), use_features=False).eval()
+    with torch.no_grad():
+        model(toy_batch())          # must not raise: no features needed
+
+
+def test_features_change_the_prediction():
+    """If they did not, the ablation would report a real difference of zero."""
+    torch.manual_seed(0)
+    model = SiteCGCNN(CGCNNConfig(n_conv=2), use_features=True).eval()
+    b = feat_batch()
+    c = dict(b)
+    c["coordination"] = torch.full((b["z"].numel(),), 11.0)
+    with torch.no_grad():
+        assert not torch.allclose(model(b), model(c))
+
+
+def test_features_permute_with_the_atoms():
+    torch.manual_seed(0)
+    model = SiteCGCNN(CGCNNConfig(n_conv=2), use_features=True).eval()
+    b = feat_batch(8)
+    with torch.no_grad():
+        a = model(b)
+    n = b["z"].numel()
+    perm = torch.randperm(n)
+    inv = torch.empty_like(perm)
+    inv[perm] = torch.arange(n)
+    pb = {**b, "z": b["z"][perm], "src": inv[b["src"]], "dst": inv[b["dst"]]}
+    for k in ("site_mask", "is_adsorbate", "height", "coordination"):
+        pb[k] = b[k][perm]
+    with torch.no_grad():
+        assert torch.allclose(a, model(pb), atol=1e-5)
+
+
+def test_the_store_rejects_a_stale_cache():
+    """A cache written before a feature was added would misalign every atom."""
+    from src.models.slab_dataset import SlabStore
+    try:
+        store = SlabStore()
+    except FileNotFoundError:
+        pytest.skip("slab graphs not built")
+    assert store.coordination.shape[0] == store.z.shape[0]
+    assert store.height.shape[0] == store.z.shape[0]

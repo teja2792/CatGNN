@@ -225,10 +225,23 @@ __marimo__/
 # before 1 GB; a graph cache for 30k structures will pass both marks easily.
 # ---------------------------------------------------------------------------
 
-# Downloaded datasets -- reproducible from data/raw/*/manifest.json
+# Downloaded datasets -- MOSTLY reproducible from data/raw/*/manifest.json.
+#
+# Materials Project data is: the API is fast, unmetered for this volume, and a
+# re-download costs minutes. Ignoring it is right.
+#
+# CATALYSIS-HUB GEOMETRIES ARE NOT. The GraphQL endpoint returns one row per
+# request when structures are asked for, against a published cap of 500/day with
+# automatic account suspension. The 847 rows here cost two days of budget. A
+# manifest does not reproduce them; only two more days does.
+#
+# So they are committed. 6 MB against GitHub's 50 MB warning, and it buys back
+# the only resource in this project that cannot be re-earned by rerunning code.
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/**/manifest.json
+!data/raw/catalysis_hub/adsorption.jsonl
+!data/raw/catalysis_hub/geometries.jsonl
 
 # Cached graphs and tensors -- rebuilt by the data layer, large
 data/cache/*

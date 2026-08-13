@@ -120,6 +120,15 @@ def main() -> None:
         bonded = (g["dist"] <= 2.6) & mask[g["src"]]
         site[g["dst"][bonded]] = True
         g["site_mask"] = site
+        # Coordination number within 3 A -- the strongest simple structural
+        # predictor of binding (generalised-coordination-number model,
+        # Calle-Vallejo et al., Science 350, 185, 2015). The network could in
+        # principle derive it by message passing; with ~590 training rows,
+        # handing it over directly is the difference between learning chemistry
+        # and spending capacity rediscovering a definition.
+        close = g["dist"] <= 3.0
+        g["coordination"] = np.bincount(g["src"][close],
+                                        minlength=len(mask)).astype(np.float32)
         graphs.append(g)
         meta.append({
             "id": r["id"], "y": r["reactionEnergy"],
@@ -205,6 +214,7 @@ def main() -> None:
         is_adsorbate=np.concatenate([g["is_adsorbate"] for g in graphs]),
         height=np.concatenate([g["height"] for g in graphs]).astype(np.float32),
         site_mask=np.concatenate([g["site_mask"] for g in graphs]),
+        coordination=np.concatenate([g["coordination"] for g in graphs]).astype(np.float32),
         node_ptr=node_ptr.astype(np.int64), edge_ptr=edge_ptr.astype(np.int64),
         y=y.astype(np.float64),
     )
