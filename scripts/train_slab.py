@@ -1,20 +1,39 @@
 """Train a graph network on CO adsorption energies, against an honest baseline.
 
-PRE-REGISTERED PREDICTIONS, written before any run
---------------------------------------------------
-1. On the RANDOM split the model beats the surface-mean baseline comfortably,
-   and this means almost nothing: 100% of test rows sit on a surface whose other
-   nine sites are in training, so memorising surface means is available.
-2. On the SURFACE-DISJOINT split the model does markedly worse than on random.
-   The gap between the two is the leakage, and it is the point of running both.
-3. Beating the surface-disjoint baseline (0.868 eV) is NOT expected to be easy
-   with 280 training rows. The honest possible outcomes include "the graph model
-   does not beat it", and that will be reported if it happens.
+ROUND 1 (mean readout, 847 rows, one seed) -- WHAT HAPPENED
+------------------------------------------------------------
+    shuffled labels   R2 -0.013   control passed, no leak in the pipeline
+    random split      R2 +0.612   but 100% leakage: memorising surface means
+    surface-disjoint  R2 -0.110   WORSE than predicting the mean
+    surface, cleaned  R2 +0.183   dropping 30 suspect rows recovers real skill
 
-Prediction 3 deserves emphasis. 280 training rows is very little for a network
-with tens of thousands of parameters, and the baseline on this split is strong
-precisely because it degenerates to the global mean -- which is hard to beat when
-the target has no surface-level signal left to exploit.
+Predictions 1 and 2 held. Prediction 3 -- "the model may fail to beat the
+baseline" -- came true on the honest split.
+
+WHY IT FAILED, AND WHY IT WAS NOT SIMPLY LACK OF DATA
+------------------------------------------------------
+Diagnosed rather than assumed. `CGCNN.pool` averages over every atom. Adsorption
+energy is a property of ONE bond at ONE site, so on a median 34-atom slab the two
+atoms that form the bond get about 6% of the readout and 32 spectators -- bulk
+interior, and the entire opposite bare face -- get 94%.
+
+Dilution alone would be survivable. The disqualifying part is that slabs run from
+22 to 114 atoms, so the adsorbate's share of the mean runs 9.1% down to 1.8%, a
+5.2x range, and slab size is a property of the SURFACE. The distortion is
+therefore perfectly confounded with the surface-disjoint split: every held-out
+surface presents a signal scaling never seen in training, and no quantity of
+extra rows on other surfaces teaches it. That is a sufficient mechanism for a
+negative R2, and it is a modelling error, not a data shortage.
+
+ROUND 2 PRE-REGISTERED PREDICTIONS
+----------------------------------
+4. The site readout beats the mean readout on the surface-disjoint split. This
+   is the actual hypothesis; if it fails, the diagnosis above was wrong.
+5. On the RANDOM split the two readouts are much closer, because memorising a
+   surface mean does not require resolving the site.
+6. Seed spread is large. Every number in round 1 was a single seed on 13 held-out
+   surfaces, and R2 = -0.110 may be partly noise. Reported as mean +- sd over
+   seeds from here on, and an improvement inside the seed spread is not a result.
 
 WHY TWO DATA VARIANTS
 ---------------------
@@ -28,9 +47,8 @@ Both are run. `--drop-implausible` excludes them. If the conclusion depends on
 which is chosen, that dependence is the result.
 
 Run:
-    python scripts/train_slab.py --split surface
-    python scripts/train_slab.py --split random
-    python scripts/train_slab.py --split surface --drop-implausible
+    python scripts/train_slab.py --split surface --model cgcnn --seeds 0 1 2
+    python scripts/train_slab.py --split surface --model site  --seeds 0 1 2
 """
 
 from __future__ import annotations
@@ -79,6 +97,13 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--seeds", type=int, nargs="*", default=None,
+                    help="run several seeds and report spread. A single seed on "
+                         "13 held-out surfaces cannot distinguish a result from "
+                         "noise, and every earlier number here was one seed.")
+    ap.add_argument("--model", choices=["cgcnn", "site"], default="site",
+                    help="cgcnn = mean over all atoms (the control); "
+                         "site = mean over the binding site + global context")
     ap.add_argument("--shuffle-labels", action="store_true",
                     help="control: permute targets. Any skill left is a bug.")
     args = ap.parse_args()
@@ -86,6 +111,7 @@ def main() -> None:
     import torch
 
     from src.models.cgcnn import CGCNN
+    from src.models.site_cgcnn import SiteCGCNN
     from src.models.slab_dataset import SlabStore
     from src.models.train import TrainConfig, train
 
@@ -136,23 +162,45 @@ def main() -> None:
     print(f"  test-set spread (std)                              "
           f"{y_kept[[k for k, r in enumerate(kept) if r['id'] in set(split['test'])]].std():.3f} eV")
 
-    cfg = TrainConfig(target="adsorption_energy", split=args.split,
-                      max_epochs=args.epochs, max_minutes=args.max_minutes,
-                      batch_size=args.batch_size, lr=args.lr, seed=args.seed,
-                      notes="catalysis CO adsorption, Phase 7")
-    out = RESULTS / (f"{args.split}"
-                     + ("_clean" if args.drop_implausible else "")
-                     + ("_shuffled" if args.shuffle_labels else ""))
-    out.mkdir(parents=True, exist_ok=True)
+    seeds = args.seeds if args.seeds else [args.seed]
+    Model = SiteCGCNN if args.model == "site" else CGCNN
+    print(f"\n  readout: {'binding site + global' if args.model == 'site' else 'mean over ALL atoms (control)'}")
 
-    model = CGCNN()
-    n_par = sum(p.numel() for p in model.parameters())
-    print(f"  model parameters                                   {n_par:,}")
-    print(f"    ^ {n_par / max(1, len(split['train'])):,.0f} parameters per training row.")
-    print("      Overfitting is the expected failure mode here, not underfitting.\n")
+    runs = []
+    for si, sd in enumerate(seeds):
+        cfg = TrainConfig(target="adsorption_energy", split=args.split,
+                          max_epochs=args.epochs, max_minutes=args.max_minutes,
+                          batch_size=args.batch_size, lr=args.lr, seed=sd,
+                          notes="catalysis CO adsorption, Phase 7")
+        out = RESULTS / (f"{args.model}_{args.split}"
+                         + ("_clean" if args.drop_implausible else "")
+                         + ("_shuffled" if args.shuffle_labels else "")
+                         + (f"_seed{sd}" if len(seeds) > 1 else ""))
+        out.mkdir(parents=True, exist_ok=True)
 
-    res = train(model, store, split, cfg, torch, out)
+        model = Model()
+        n_par = sum(p.numel() for p in model.parameters())
+        if si == 0:
+            print(f"  model parameters                                   {n_par:,}")
+            print(f"    ^ {n_par / max(1, len(split['train'])):,.0f} parameters per training row.")
+            print("      Overfitting is the expected failure mode here.\n")
+        if len(seeds) > 1:
+            print(f"\n  ---- seed {sd} ({si + 1}/{len(seeds)}) ----")
+        r = train(model, store, split, cfg, torch, out)
+        runs.append((sd, r, out))
 
+    if len(runs) > 1:
+        rs = np.array([float(r["test"]["rmse"]) for _, r, _ in runs])
+        r2 = np.array([float(r["test"]["r2"]) for _, r, _ in runs])
+        print(f"\n{'=' * 76}\n  Across {len(runs)} seeds\n{'=' * 76}")
+        print(f"\n  {'seed':>6}{'RMSE':>10}{'R2':>9}")
+        for (sd, r, _), a, b in zip(runs, rs, r2):
+            print(f"  {sd:>6}{a:>10.3f}{b:>9.3f}")
+        print(f"\n  RMSE {rs.mean():.3f} +- {rs.std(ddof=1):.3f}   "
+              f"R2 {r2.mean():.3f} +- {r2.std(ddof=1):.3f}")
+        print("  ^ seed spread. Any single-seed number below is one draw from this.")
+
+    _, res, out = runs[0]
     rmse = float(res["test"]["rmse"])
     # Per-row errors come from the predictions train() saved, so the interval is
     # computed on the same rows the RMSE is, not on a re-run.
@@ -164,7 +212,8 @@ def main() -> None:
 
     print(f"\n{'=' * 76}\n  Result\n{'=' * 76}")
     print(f"\n  graph model     {rmse:.3f} eV   "
-          f"(MAE {res['test']['mae']:.3f}, R2 {res['test']['r2']:.3f})")
+          f"(MAE {res['test']['mae']:.3f}, medAE {res['test']['medae']:.3f}, "
+          f"R2 {res['test']['r2']:.3f})")
     lo = hi = None
     if err.size:
         lo, hi = bootstrap_rmse(err)
@@ -184,7 +233,8 @@ def main() -> None:
     print()
 
     (out / "summary.json").write_text(json.dumps({
-        "split": args.split, "rows_kept": len(kept),
+        "split": args.split, "model": args.model, "rows_kept": len(kept),
+        "seeds": seeds,
         "dropped_implausible": bool(args.drop_implausible),
         "dropped_subsurface": bool(args.drop_subsurface),
         "shuffled_labels": bool(args.shuffle_labels),

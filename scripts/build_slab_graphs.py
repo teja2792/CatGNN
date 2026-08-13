@@ -112,6 +112,14 @@ def main() -> None:
         # correlate here and would stop correlating without warning.
         z_coord = ads_atoms["positions"][:, 2]
         g["height"] = (z_coord - z_coord[~mask].min()).astype(np.float32)
+        # The binding site: the adsorbate plus the surface atoms it is actually
+        # bonded to. This is what the readout has to see. 2.6 A is a bond, not a
+        # contact -- the 8 A graph cutoff is deliberately generous and would pull
+        # in a third of the slab.
+        site = mask.copy()
+        bonded = (g["dist"] <= 2.6) & mask[g["src"]]
+        site[g["dst"][bonded]] = True
+        g["site_mask"] = site
         graphs.append(g)
         meta.append({
             "id": r["id"], "y": r["reactionEnergy"],
@@ -120,6 +128,7 @@ def main() -> None:
             "n_atoms": int(g["n_atoms"]), "n_edges": int(g["src"].size),
             "vacuum": round(gap, 2),
             "n_adsorbate": int(mask.sum()),
+            "n_site": int(site.sum()),
         })
 
     print(f"  {len(graphs)} graphs built"
@@ -195,6 +204,7 @@ def main() -> None:
         dist=np.concatenate([g["dist"] for g in graphs]).astype(np.float32),
         is_adsorbate=np.concatenate([g["is_adsorbate"] for g in graphs]),
         height=np.concatenate([g["height"] for g in graphs]).astype(np.float32),
+        site_mask=np.concatenate([g["site_mask"] for g in graphs]),
         node_ptr=node_ptr.astype(np.int64), edge_ptr=edge_ptr.astype(np.int64),
         y=y.astype(np.float64),
     )

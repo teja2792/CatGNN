@@ -1,0 +1,24 @@
+{
+  "split": "random",
+  "rows_kept": 847,
+  "dropped_implausible": false,
+  "dropped_subsurface": false,
+  "shuffled_labels": false,
+  "leakage": {
+    "test_rows": 127,
+    "test_surfaces": 68,
+    "test_rows_on_a_training_surface": 127,
+    "leak_fraction": 1.0,
+    "train_surfaces": 85
+  },
+  "baseline_eV": 1.4693,
+  "test_rmse_eV": 1.0977,
+  "test_rmse_ci95": [
+    0.4655,
+    1.5819
+  ],
+  "test_mae_eV": 0.4125,
+  "test_r2": 0.6124,
+  "parameters": 81345,
+  "parameters_per_training_row": 137.2
+}

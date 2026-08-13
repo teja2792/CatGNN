@@ -1,0 +1,183 @@
+{
+  "test": {
+    "mae": 1.0969544893273941,
+    "medae": 0.7159611582756042,
+    "rmse": 1.7471636380960596,
+    "r2": -0.013126494916531506,
+    "n": 130
+  },
+  "val_mae_best": 0.9630110483616591,
+  "best_epoch": 7,
+  "epochs_run": 23,
+  "minutes": 1.02,
+  "stop_reason": "early_stopping",
+  "n_parameters": 81345,
+  "config": {
+    "target": "adsorption_energy",
+    "split": "surface",
+    "max_minutes": 15.0,
+    "max_epochs": 300,
+    "batch_size": 32,
+    "lr": 0.003,
+    "weight_decay": 0.0,
+    "patience": 15,
+    "seed": 42,
+    "num_threads": null,
+    "exclude_metals": false,
+    "subsample_train": null,
+    "notes": "catalysis CO adsorption, Phase 7"
+  },
+  "model_config": {
+    "atom_fea_len": 64,
+    "n_conv": 3,
+    "h_fea_len": 128,
+    "n_edge_fea": 41,
+    "max_z": 100,
+    "use_batch_norm": true,
+    "dropout": 0.0
+  },
+  "normaliser": {
+    "mean": -1.6873662127257367,
+    "std": 1.4704004143911908
+  },
+  "history": [
+    {
+      "epoch": 0,
+      "train_loss": 0.718119881425237,
+      "val_mae": 1.0830788217771512,
+      "minutes": 0.04
+    },
+    {
+      "epoch": 1,
+      "train_loss": 0.6329779381240247,
+      "val_mae": 1.0103890730497929,
+      "minutes": 0.09
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.6117820869718743,
+      "val_mae": 0.9833708542757309,
+      "minutes": 0.13
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.6166385282243537,
+      "val_mae": 0.9648033536110933,
+      "minutes": 0.17
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.6098149905212896,
+      "val_mae": 0.9698566977507793,
+      "minutes": 0.21
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.6066936789623111,
+      "val_mae": 0.9881428699940443,
+      "minutes": 0.25
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.618017500567883,
+      "val_mae": 1.0230061741689076,
+      "minutes": 0.29
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.6092148013476416,
+      "val_mae": 0.9630110483616591,
+      "minutes": 0.34
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.6049086586072457,
+      "val_mae": 0.9669529758680325,
+      "minutes": 0.38
+    },
+    {
+      "epoch": 9,
+      "train_loss": 0.6048463201705602,
+      "val_mae": 0.9776988065873201,
+      "minutes": 0.43
+    },
+    {
+      "epoch": 10,
+      "train_loss": 0.6066797401572005,
+      "val_mae": 0.9788534595129582,
+      "minutes": 0.47
+    },
+    {
+      "epoch": 11,
+      "train_loss": 0.6026430975842516,
+      "val_mae": 0.9837393888773827,
+      "minutes": 0.52
+    },
+    {
+      "epoch": 12,
+      "train_loss": 0.6021328343037243,
+      "val_mae": 0.984023760803617,
+      "minutes": 0.56
+    },
+    {
+      "epoch": 13,
+      "train_loss": 0.6007583280438256,
+      "val_mae": 0.9839542819616887,
+      "minutes": 0.61
+    },
+    {
+      "epoch": 14,
+      "train_loss": 0.6021462926669665,
+      "val_mae": 1.0065251010828293,
+      "minutes": 0.65
+    },
+    {
+      "epoch": 15,
+      "train_loss": 0.611229329336644,
+      "val_mae": 0.9791039998428179,
+      "minutes": 0.7
+    },
+    {
+      "epoch": 16,
+      "train_loss": 0.6069513723838065,
+      "val_mae": 0.9695522097154305,
+      "minutes": 0.74
+    },
+    {
+      "epoch": 17,
+      "train_loss": 0.6012776651414939,
+      "val_mae": 1.0080875671540315,
+      "minutes": 0.79
+    },
+    {
+      "epoch": 18,
+      "train_loss": 0.6054595498149196,
+      "val_mae": 0.9814243463082956,
+      "minutes": 0.84
+    },
+    {
+      "epoch": 19,
+      "train_loss": 0.6005619028662498,
+      "val_mae": 0.9739790925326256,
+      "minutes": 0.88
+    },
+    {
+      "epoch": 20,
+      "train_loss": 0.604221456197092,
+      "val_mae": 0.9802211586959086,
+      "minutes": 0.93
+    },
+    {
+      "epoch": 21,
+      "train_loss": 0.5992450225698481,
+      "val_mae": 0.9894131605155193,
+      "minutes": 0.97
+    },
+    {
+      "epoch": 22,
+      "train_loss": 0.5994326298647074,
+      "val_mae": 0.9888668041676283,
+      "minutes": 1.02
+    }
+  ]
+}
