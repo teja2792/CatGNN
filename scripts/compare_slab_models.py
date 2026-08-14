@@ -1,40 +1,45 @@
 """Compare the readout variants the way they should be compared: paired by seed.
 
-WHY NOT JUST COMPARE THE MEANS
--------------------------------
-Round 2 produced these mean R2 over three seeds on the surface-disjoint split:
+WHAT EIGHT SEEDS SAID (847 rows, surface-disjoint, implausible rows dropped)
+----------------------------------------------------------------------------
+Paired by seed, differences in R2 against the mean-readout control:
 
-    cgcnn (mean readout)     0.090
-    site  (site readout)     0.207
-    site_feat (+ features)   0.308
+    site      +0.048 -0.023 +0.382 +0.075 +0.031 +0.543 -0.084 +0.286
+    site_feat -0.010 +0.034 +0.631 +0.142 +0.031 +0.346 -0.022 +0.296
 
-Read as means, that is a clean 3x improvement and confirmation of the diagnosis.
-Read PAIRED -- same seed, same split, model against model -- it says something
-different:
+    site       mean +0.157  t(7) = 2.01  p = 0.084   better on 6/8, sign p = 0.29
+    site_feat  mean +0.181  t(7) = 2.24  p = 0.060   better on 6/8, sign p = 0.29
 
-    seed        cgcnn     site   site_feat
-       0        0.246    0.238       0.234
-       1        0.195    0.173       0.229
-       2       -0.172    0.211       0.460
+THE ACCURACY IMPROVEMENT IS NOT ESTABLISHED. Neither variant separates from the
+control at p < 0.05, and the sign test -- which a collapsed run cannot skew -- is
+nowhere near it at 0.29. Two large positive differences are doing most of the
+work, and both are seeds where the control failed rather than seeds where the
+site readout excelled.
 
-On seeds 0 and 1 the site readout is very slightly WORSE than the control. The
-entire mean improvement comes from seed 2, where the control collapsed to
-R2 = -0.172 and stopped after 17 epochs having never found the signal.
+WHAT IS ESTABLISHED IS STABILITY:
 
-So the demonstrated effect of the site readout is not better typical accuracy.
-It is that the control sometimes fails completely and the site readout does not:
-seed-to-seed sd falls from 0.228 to 0.033, a factor of 7, and the worst seed goes
-from -0.172 to +0.173.
+    cgcnn      sd 0.188   worst -0.206   epochs 18-65
+    site       sd 0.051   worst +0.173   epochs 18-31
+    site_feat  sd 0.097   worst +0.140   epochs 19-31
 
-That is a revision of the stated mechanism, not a confirmation of it. The
-prediction was that mean-pooling introduces a systematic distortion confounded
-with the split. What the runs show is that it makes OPTIMISATION fragile --
-consistent with 16x signal dilution producing weak gradients through the atoms
-that matter, so some initialisations never escape predicting the mean. Coherent,
-but it is the revised story and is labelled as such.
+    cgcnn vs site       F = 13.59   p = 0.0027   <- real
+    cgcnn vs site_feat  F =  3.76   p = 0.102
 
-Comparing unpaired means would have reported a mechanism that the per-seed
-numbers do not support.
+The control collapses on roughly a quarter of seeds and the site readout never
+does. That is a genuine result at p = 0.003, and it is a different claim from
+"the model is more accurate", which the data does not support.
+
+THE FEATURES DO NOT HELP, AND THEY COST STABILITY
+--------------------------------------------------
+site_feat against site, paired: mean +0.024, t(7) = 0.53, p = 0.61, better on 5
+of 8. No effect. And the variance advantage over the control weakens from
+p = 0.003 to p = 0.10 when they are added.
+
+So is_adsorbate, is_site, height and coordination -- all four, chosen on physical
+grounds and defended at length -- buy nothing measurable here and make the model
+slightly less reliable. The default was changed from site_feat to site on that
+basis. Recorded rather than quietly dropped, because a negative result about
+one's own idea is worth exactly as much as a positive one and is easier to lose.
 
 Run:  python scripts/compare_slab_models.py
 """
@@ -48,6 +53,11 @@ from pathlib import Path
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from src.models.seed_stats import paired_test, variance_ratio  # noqa: E402
+
 RESULTS = REPO / "results" / "catalysis"
 MODELS = ["cgcnn", "site", "site_feat"]
 
@@ -113,30 +123,60 @@ def main() -> None:
         print(f"\n  WARNING: {len(seeds)} seeds. On 13 held-out surfaces that is")
         print("  not enough to separate these. Treat every gap below as unproven.")
 
-    print("\n  Paired differences vs the mean-readout control (same seed):")
     base = have.get("cgcnn")
+    if base:
+        print("\n  PAIRED against the mean-readout control")
+        print("    A t-test assumes the differences are roughly normal; a")
+        print("    collapsed run is a heavy outlier that breaks that. The sign")
+        print("    test only counts wins, so one catastrophe cannot create a")
+        print("    result. When they disagree, believe the sign test.")
+        for m in have:
+            if m == "cgcnn":
+                continue
+            d, _ = paired(have[m], base, "r2")
+            if d.size < 2:
+                continue
+            r = paired_test(d)
+            print(f"\n    {m}")
+            print(f"      differences  {' '.join(f'{x:+.3f}' for x in d)}")
+            print(f"      mean {r['mean']:+.3f}   t({r['n'] - 1}) = {r['t']:.2f}   "
+                  f"p = {r['p_t']:.3f}")
+            print(f"      better on {r['wins']}/{r['n']} seeds        "
+                  f"sign test p = {r['p_sign']:.3f}")
+            verdict = ("accuracy gain IS established"
+                       if r["p_t"] < 0.05 and r["p_sign"] < 0.05 else
+                       "accuracy gain is NOT established" if r["p_sign"] >= 0.05
+                       else "mixed: t and sign test disagree")
+            print(f"      -> {verdict}")
+
+    print("\n  STABILITY, tested rather than asserted")
+    r2 = {m: [v["r2"] for v in have[m].values()] for m in have}
+    ep = {m: [v["epochs"] for v in have[m].values()] for m in have}
+    for m in have:
+        print(f"    {m:<12} sd {np.std(r2[m], ddof=1):.3f}   "
+              f"worst {min(r2[m]):+.3f}   epochs {min(ep[m])}-{max(ep[m])}")
     if base:
         for m in have:
             if m == "cgcnn":
                 continue
-            d, shared = paired(have[m], base, "r2")
-            if not d.size:
-                continue
-            wins = int((d > 0).sum())
-            print(f"    {m:<12} {' '.join(f'{x:+.3f}' for x in d)}"
-                  f"   mean {d.mean():+.3f}   better on {wins}/{len(d)} seeds")
-            if wins < len(d):
-                print("      ^ NOT a uniform win. The mean is carried by the"
-                      " seed where the control failed.")
+            shared = sorted(set(base) & set(have[m]))
+            v = variance_ratio([base[s]["r2"] for s in shared],
+                               [have[m][s]["r2"] for s in shared])
+            flag = "REAL" if v["p"] < 0.05 else "not established"
+            print(f"    cgcnn vs {m:<12} F = {v['F']:5.2f}   p = {v['p']:.4f}   {flag}")
+    print("\n    A collapsed run shows up as few epochs AND low R2: it stopped")
+    print("    early because it never improved, not because it converged.")
 
-    print("\n  Stability, which is what the numbers actually support:")
-    for m in have:
-        v = [x["r2"] for x in have[m].values()]
-        e = [x["epochs"] for x in have[m].values()]
-        print(f"    {m:<12} sd {np.std(v, ddof=1):.3f}   worst {min(v):+.3f}   "
-              f"epochs {min(e)}-{max(e)}")
-    print("\n  A collapsed run shows up as few epochs AND low R2: the model")
-    print("  stopped early because it never improved, not because it converged.\n")
+    if len(have) == 3 and "site" in have and "site_feat" in have:
+        d, _ = paired(have["site_feat"], have["site"], "r2")
+        if d.size >= 2:
+            r = paired_test(d)
+            print("\n  DO THE FEATURES ADD ANYTHING over the readout alone?")
+            print(f"    mean {r['mean']:+.3f}   t({r['n'] - 1}) = {r['t']:.2f}   "
+                  f"p = {r['p_t']:.3f}   better on {r['wins']}/{r['n']}")
+            if r["p_t"] >= 0.05:
+                print("    -> No. The four descriptors buy nothing measurable.")
+    print()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,183 @@
+{
+  "test": {
+    "mae": 0.5126397949419915,
+    "medae": 0.3493267297744751,
+    "rmse": 0.775372433576238,
+    "r2": 0.22341335346867486,
+    "n": 125
+  },
+  "val_mae_best": 0.3606076571251458,
+  "best_epoch": 7,
+  "epochs_run": 23,
+  "minutes": 0.97,
+  "stop_reason": "early_stopping",
+  "n_parameters": 89537,
+  "config": {
+    "target": "adsorption_energy",
+    "split": "surface",
+    "max_minutes": 15.0,
+    "max_epochs": 300,
+    "batch_size": 32,
+    "lr": 0.003,
+    "weight_decay": 0.0,
+    "patience": 15,
+    "seed": 6,
+    "num_threads": null,
+    "exclude_metals": false,
+    "subsample_train": null,
+    "notes": "catalysis CO adsorption, Phase 7"
+  },
+  "model_config": {
+    "atom_fea_len": 64,
+    "n_conv": 3,
+    "h_fea_len": 128,
+    "n_edge_fea": 41,
+    "max_z": 100,
+    "use_batch_norm": true,
+    "dropout": 0.0
+  },
+  "normaliser": {
+    "mean": -1.4996700388516016,
+    "std": 0.964470639002021
+  },
+  "history": [
+    {
+      "epoch": 0,
+      "train_loss": 0.912225192932695,
+      "val_mae": 0.6696650832466456,
+      "minutes": 0.05
+    },
+    {
+      "epoch": 1,
+      "train_loss": 0.6618955209061451,
+      "val_mae": 0.4873757089935391,
+      "minutes": 0.1
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.5057770898401105,
+      "val_mae": 0.3989501524964229,
+      "minutes": 0.14
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.4555556558256857,
+      "val_mae": 0.39626195667762426,
+      "minutes": 0.18
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.4801126402595439,
+      "val_mae": 0.4456056514477712,
+      "minutes": 0.22
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.4148722905994725,
+      "val_mae": 0.39412919888901154,
+      "minutes": 0.26
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.39377583473815514,
+      "val_mae": 0.39351215812429374,
+      "minutes": 0.3
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.385140904900042,
+      "val_mae": 0.3606076571251458,
+      "minutes": 0.34
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.3793583707127049,
+      "val_mae": 0.4091823443581927,
+      "minutes": 0.38
+    },
+    {
+      "epoch": 9,
+      "train_loss": 0.37014571021807907,
+      "val_mae": 0.38796078776090687,
+      "minutes": 0.42
+    },
+    {
+      "epoch": 10,
+      "train_loss": 0.35894104869963844,
+      "val_mae": 0.3670093731322725,
+      "minutes": 0.46
+    },
+    {
+      "epoch": 11,
+      "train_loss": 0.35324962326578874,
+      "val_mae": 0.4202538087302523,
+      "minutes": 0.5
+    },
+    {
+      "epoch": 12,
+      "train_loss": 0.3568831526348532,
+      "val_mae": 0.3877452918982488,
+      "minutes": 0.54
+    },
+    {
+      "epoch": 13,
+      "train_loss": 0.33030331471783536,
+      "val_mae": 0.36651178693494924,
+      "minutes": 0.58
+    },
+    {
+      "epoch": 14,
+      "train_loss": 0.32419481741876566,
+      "val_mae": 0.42206136405002326,
+      "minutes": 0.62
+    },
+    {
+      "epoch": 15,
+      "train_loss": 0.317147593510867,
+      "val_mae": 0.4171576064305439,
+      "minutes": 0.66
+    },
+    {
+      "epoch": 16,
+      "train_loss": 0.2875814615311134,
+      "val_mae": 0.450830461680963,
+      "minutes": 0.7
+    },
+    {
+      "epoch": 17,
+      "train_loss": 0.2947730375684192,
+      "val_mae": 0.44572067989723846,
+      "minutes": 0.75
+    },
+    {
+      "epoch": 18,
+      "train_loss": 0.2803787548002843,
+      "val_mae": 0.42931819832994644,
+      "minutes": 0.8
+    },
+    {
+      "epoch": 19,
+      "train_loss": 0.2867107926324905,
+      "val_mae": 0.38013286718780853,
+      "minutes": 0.84
+    },
+    {
+      "epoch": 20,
+      "train_loss": 0.2735838227684843,
+      "val_mae": 0.47706985232856364,
+      "minutes": 0.88
+    },
+    {
+      "epoch": 21,
+      "train_loss": 0.25927652234323456,
+      "val_mae": 0.4349303767842699,
+      "minutes": 0.92
+    },
+    {
+      "epoch": 22,
+      "train_loss": 0.2661774939867296,
+      "val_mae": 0.440043479161677,
+      "minutes": 0.96
+    }
+  ]
+}

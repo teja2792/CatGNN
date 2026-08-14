@@ -418,7 +418,45 @@ close-packed facets. The survivors would have been a biased sample of easy
 surfaces and the bias would not have been visible in any result. Slabs use a
 separate `SLAB_MAX_ATOMS = 200` cap, which nothing in the current sample reaches.
 
-## 20. Single author, no independent replication
+## 20. The catalysis model's improvement is stability, not accuracy
+
+Round 2 replaced the readout, on the diagnosis that averaging over all atoms gives
+the two atoms forming the CO bond ~6% of the signal, with a dilution factor that
+varies 5.2x across surfaces and is therefore confounded with the surface-disjoint
+split. Eight seeds, paired, on 847 rows:
+
+| comparison | mean ΔR² | t(7) | p | wins | sign p |
+|---|---|---|---|---|---|
+| site vs mean readout | +0.157 | 2.01 | 0.084 | 6/8 | 0.29 |
+| site+features vs mean readout | +0.181 | 2.24 | 0.060 | 6/8 | 0.29 |
+| features vs readout alone | +0.024 | 0.53 | 0.61 | 5/8 | 0.73 |
+
+**The accuracy gain is not established.** Neither variant separates from the
+control at p < 0.05, and the sign test — which a single collapsed run cannot skew
+— is nowhere near it. Two large positive differences carry the mean, and both are
+seeds where the *control failed*, not seeds where the site readout excelled.
+
+**The stability gain is established.** Seed-to-seed sd falls from 0.188 to 0.051,
+F = 13.59, p = 0.0027. The control collapses to negative R² on roughly one seed in
+four and the site readout never does. That is a real and useful property — a model
+that fails silently on a quarter of runs cannot be trusted — but it is a different
+claim from "more accurate", and the two are easy to conflate when only means are
+reported.
+
+**The four per-atom descriptors failed.** is_adsorbate, is_site, height and
+coordination were added on physical grounds — coordination in particular is the
+basis of the generalised-coordination-number model. They buy nothing (p = 0.61)
+and they *weaken* the stability advantage, from F = 13.59, p = 0.003 down to
+F = 3.76, p = 0.10. The default was changed to the readout without them. The
+likely reason: three convolutions over an 8 Å graph already encode coordination,
+so the descriptors are redundant rather than absent, and their input weights are
+free parameters that only add variance.
+
+This is recorded at length because it is a negative result about the author's own
+idea, argued for over several pages before it was tested, and those are the
+results most likely to quietly disappear.
+
+## 21. Single author, no independent replication
 
 Everything here was built and checked by one person. The mitigations — assertions
 that fail loudly, figures regenerated from source data rather than hand-edited, CI on

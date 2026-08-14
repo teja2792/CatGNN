@@ -25,15 +25,22 @@ surface presents a signal scaling never seen in training, and no quantity of
 extra rows on other surfaces teaches it. That is a sufficient mechanism for a
 negative R2, and it is a modelling error, not a data shortage.
 
-ROUND 2 PRE-REGISTERED PREDICTIONS
-----------------------------------
-4. The site readout beats the mean readout on the surface-disjoint split. This
-   is the actual hypothesis; if it fails, the diagnosis above was wrong.
-5. On the RANDOM split the two readouts are much closer, because memorising a
-   surface mean does not require resolving the site.
-6. Seed spread is large. Every number in round 1 was a single seed on 13 held-out
-   surfaces, and R2 = -0.110 may be partly noise. Reported as mean +- sd over
-   seeds from here on, and an improvement inside the seed spread is not a result.
+ROUND 2 PRE-REGISTERED PREDICTIONS, AND HOW THEY CAME OUT (8 seeds)
+-------------------------------------------------------------------
+4. "The site readout beats the mean readout on the surface-disjoint split."
+   PARTLY. Mean R2 difference +0.157, but t(7) = 2.01, p = 0.084, and the sign
+   test is 6/8 at p = 0.29. The accuracy claim is NOT established. What is
+   established is stability: seed sd 0.188 -> 0.051, F = 13.59, p = 0.0027.
+   The control collapses on ~1 seed in 4; the site readout never does.
+5. Untested so far -- the random split was not re-run across seeds.
+6. HELD, emphatically. Round 1's R2 = -0.110 was one draw from a distribution
+   whose sd is 0.188. Single-seed numbers on this split are not interpretable.
+
+And one result that was not predicted: the four per-atom descriptors added in
+round 2 do nothing. site_feat against site, paired: mean +0.024, p = 0.61,
+better on 5 of 8 seeds. They also weaken the stability advantage (F = 3.76,
+p = 0.10 versus 13.59, p = 0.003). The default is therefore `site`, not
+`site_feat`. See scripts/compare_slab_models.py.
 
 WHY TWO DATA VARIANTS
 ---------------------
@@ -102,7 +109,7 @@ def main() -> None:
                          "13 held-out surfaces cannot distinguish a result from "
                          "noise, and every earlier number here was one seed.")
     ap.add_argument("--model", choices=["cgcnn", "site", "site_feat"],
-                    default="site_feat",
+                    default="site",
                     help="cgcnn = mean over ALL atoms, no extra features (the "
                          "round-1 control); site = site readout only; "
                          "site_feat = site readout + 4 per-atom descriptors. "

@@ -5,7 +5,12 @@
   "seeds": [
     0,
     1,
-    2
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
   ],
   "dropped_implausible": true,
   "dropped_subsurface": false,
@@ -18,13 +23,13 @@
     "train_surfaces": 59
   },
   "baseline_eV": 0.9255,
-  "test_rmse_eV": 0.7642,
+  "test_rmse_eV": 0.7936,
   "test_rmse_ci95": [
-    0.6178,
-    0.9044
+    0.5851,
+    0.9914
   ],
-  "test_mae_eV": 0.5214,
-  "test_r2": 0.2457,
+  "test_mae_eV": 0.4687,
+  "test_r2": 0.1866,
   "parameters": 81345,
   "parameters_per_training_row": 143.7
 }
