@@ -102,7 +102,18 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=300)
     ap.add_argument("--max-minutes", type=float, default=15.0)
     ap.add_argument("--batch-size", type=int, default=32)
-    ap.add_argument("--lr", type=float, default=3e-3)
+    # lr 3e-3 was inherited from the 100k-crystal band-gap phase. On 566 rows
+    # the validation MAE jumped 0.34 -> 1.43 between adjacent epochs, which is a
+    # step size far too large for the gradient noise at this sample size.
+    ap.add_argument("--lr", type=float, default=1e-3)
+    # weight_decay was 0.0, also inherited. Training loss fell 0.87 -> 0.18 while
+    # validation stalled at 0.38: textbook overfitting with 143 parameters per
+    # training row and nothing holding them back.
+    ap.add_argument("--weight-decay", type=float, default=1e-4)
+    ap.add_argument("--dropout", type=float, default=0.0)
+    ap.add_argument("--hidden", type=int, default=64,
+                    help="atom feature width. 64 gives 81k parameters on ~590 "
+                         "rows; 32 gives ~22k and is the obvious thing to try.")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--seeds", type=int, nargs="*", default=None,
                     help="run several seeds and report spread. A single seed on "
@@ -174,12 +185,15 @@ def main() -> None:
           f"{y_kept[[k for k, r in enumerate(kept) if r['id'] in set(split['test'])]].std():.3f} eV")
 
     seeds = args.seeds if args.seeds else [args.seed]
+    from src.models.cgcnn import CGCNNConfig
+    mcfg = CGCNNConfig(atom_fea_len=args.hidden, h_fea_len=2 * args.hidden,
+                       dropout=args.dropout)
     if args.model == "cgcnn":
-        def Model(): return CGCNN()
+        def Model(): return CGCNN(mcfg)
     elif args.model == "site":
-        def Model(): return SiteCGCNN(use_features=False)
+        def Model(): return SiteCGCNN(mcfg, use_features=False)
     else:
-        def Model(): return SiteCGCNN(use_features=True)
+        def Model(): return SiteCGCNN(mcfg, use_features=True)
     print("\n  " + {"cgcnn": "readout: mean over ALL atoms   features: none   (round-1 control)",
                      "site": "readout: binding site + global   features: none",
                      "site_feat": "readout: binding site + global   features: "
@@ -191,8 +205,10 @@ def main() -> None:
         cfg = TrainConfig(target="adsorption_energy", split=args.split,
                           max_epochs=args.epochs, max_minutes=args.max_minutes,
                           batch_size=args.batch_size, lr=args.lr, seed=sd,
+                          weight_decay=args.weight_decay,
                           notes="catalysis CO adsorption, Phase 7")
-        out = RESULTS / (f"{args.model}_{args.split}"
+        tag = "" if args.hidden == 64 else f"_h{args.hidden}"
+        out = RESULTS / (f"{args.model}{tag}_{args.split}"
                          + ("_clean" if args.drop_implausible else "")
                          + ("_shuffled" if args.shuffle_labels else "")
                          + (f"_seed{sd}" if len(seeds) > 1 else ""))
@@ -254,7 +270,8 @@ def main() -> None:
 
     (out / "summary.json").write_text(json.dumps({
         "split": args.split, "model": args.model, "rows_kept": len(kept),
-        "seeds": seeds,
+        "seeds": seeds, "lr": args.lr, "weight_decay": args.weight_decay,
+        "hidden": args.hidden, "dropout": args.dropout,
         "dropped_implausible": bool(args.drop_implausible),
         "dropped_subsurface": bool(args.drop_subsurface),
         "shuffled_labels": bool(args.shuffle_labels),

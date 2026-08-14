@@ -43,6 +43,10 @@ GEOM = REPO / "data" / "raw" / "catalysis_hub" / "geometries.jsonl"
 OUT = REPO / "data" / "cache" / "slab_graphs.npz"
 META = REPO / "data" / "cache" / "slab_graphs_meta.json"
 
+# How far from the adsorbate an atom still counts as part of the binding site.
+# See the long note at the point of use: 2.6 A found nothing for 19% of slabs.
+SITE_RADIUS = 3.5
+
 
 def ceiling(y: np.ndarray, groups: list) -> tuple[float, float]:
     """Best possible RMSE for a model that knows only the group, and its R2.
@@ -113,11 +117,29 @@ def main() -> None:
         z_coord = ads_atoms["positions"][:, 2]
         g["height"] = (z_coord - z_coord[~mask].min()).astype(np.float32)
         # The binding site: the adsorbate plus the surface atoms it is actually
-        # bonded to. This is what the readout has to see. 2.6 A is a bond, not a
-        # contact -- the 8 A graph cutoff is deliberately generous and would pull
-        # in a third of the slab.
+        # bonded to. This is what the readout has to see.
+        #
+        # 3.5 A, not the 2.6 A first used. 2.6 A is a covalent C-metal bond
+        # length and it was chosen from that, which was wrong here in a way that
+        # only showed up when the site masks were counted: it found NO surface
+        # atom at all for 165 of 847 slabs (19%). Those rows are not physisorbed
+        # -- their closest adsorbate-surface contact is 2.9-3.5 A -- they are
+        # cases where the CO sits over a nitrogen or in a hollow rather than
+        # directly atop a metal, and where the contact is a longer interaction
+        # than a textbook covalent bond.
+        #
+        # The consequence was silent and serious: for a fifth of the data the
+        # site readout averaged over the CO alone and never saw what it was
+        # binding to. Those rows also have a residual +0.799 eV against their
+        # surface mean, so they are exactly the ones the model most needed to
+        # resolve.
+        #
+        # Measured across cutoffs: 2.6 A leaves 19% empty, 3.0 A leaves 15%,
+        # 3.2 A leaves 8%, 3.5 A leaves 1% with a median of 4 site atoms. 3.5 A
+        # is where the population stops being truncated rather than a round
+        # number picked for looking chemical.
         site = mask.copy()
-        bonded = (g["dist"] <= 2.6) & mask[g["src"]]
+        bonded = (g["dist"] <= SITE_RADIUS) & mask[g["src"]]
         site[g["dst"][bonded]] = True
         g["site_mask"] = site
         # Coordination number within 3 A -- the strongest simple structural
@@ -154,6 +176,16 @@ def main() -> None:
     print("                    which is why slabs use their own cap -- dropping")
     print("                    them would keep only the small, easy facets)")
     print(f"  edges per slab : median {int(np.median(ne))}")
+    ns = np.array([m["n_site"] for m in meta])
+    nsurf = ns - np.array([m["n_adsorbate"] for m in meta])
+    print(f"  binding site   : median {int(np.median(ns))} atoms "
+          f"({SITE_RADIUS} A of the adsorbate)")
+    print(f"    slabs where the site contains NO surface atom: "
+          f"{(nsurf <= 0).sum()}/{len(ns)} ({(nsurf <= 0).mean():.0%})")
+    if (nsurf <= 0).mean() > 0.05:
+        print("    ^ TOO MANY. The site readout sees only the adsorbate for")
+        print("      these rows and cannot know what it binds to. Raise")
+        print("      SITE_RADIUS.")
 
     # The physical check. Not a formality: it is the only evidence that
     # periodicity was reconstructed correctly after the stored flag proved wrong.
