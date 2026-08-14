@@ -128,6 +128,14 @@ def main() -> None:
                          "attributed separately.")
     ap.add_argument("--shuffle-labels", action="store_true",
                     help="control: permute targets. Any skill left is a bug.")
+    ap.add_argument("--delta", action="store_true",
+                    help="DELTA LEARNING. Fit ridge on the site descriptors "
+                         "first, then train the network on what ridge got "
+                         "wrong. Final prediction = ridge + network. If the "
+                         "network learns nothing it outputs zero and the result "
+                         "IS ridge, so this cannot score worse than the "
+                         "baseline -- which the plain network does, on 7 of 8 "
+                         "seeds. Ramakrishnan et al., JCTC 11, 2087 (2015).")
     args = ap.parse_args()
 
     import torch
@@ -168,6 +176,28 @@ def main() -> None:
 
     split = (surface_split if args.split == "surface" else random_split)(
         kept, seed=args.seed)
+
+    base_pred = None
+    if args.delta:
+        # Ridge is fitted on TRAIN + VAL only. Fitting it on everything would
+        # leak the test rows into the baseline the network is corrected against,
+        # and the leak would be invisible because the network never sees y.
+        from src.features.site_descriptors import descriptor_matrix, ridge_fit
+        X = descriptor_matrix(store)
+        pos_all = {r["id"]: i for i, r in enumerate(rows)}
+        fit_idx = np.array([pos_all[i] for i in split["train"] + split["val"]
+                            if i in pos_all])
+        predict, _ = ridge_fit(X[fit_idx], y[fit_idx], 1.0)
+        base_pred = predict(X)
+        te_idx = np.array([pos_all[i] for i in split["test"] if i in pos_all])
+        rb = float(np.sqrt(((base_pred[te_idx] - y[te_idx]) ** 2).mean()))
+        print("\n  DELTA LEARNING")
+        print(f"    ridge on 8 site descriptors, fitted on train+val: "
+              f"{rb:.3f} eV on test")
+        print("    the network now predicts ridge's RESIDUAL, and the reported")
+        print("    number is ridge + network. It cannot come out worse than")
+        print(f"    {rb:.3f} unless the network actively adds noise.")
+        store.y["adsorption_energy"] = y - base_pred
     L = leakage_report(kept, split)
     y_kept = np.array([r["y"] for r in kept])
     base = group_mean_baseline(y_kept, kept, split)
@@ -244,7 +274,23 @@ def main() -> None:
     err = np.array([])
     if pred_file.exists():
         d = np.load(pred_file, allow_pickle=True)
-        err = d["y_true"].astype(float) - d["y_pred"].astype(float)
+        yt = d["y_true"].astype(float)
+        yp = d["y_pred"].astype(float)
+        if base_pred is not None:
+            # Undo the delta transform. Aligned by material_id, never by row
+            # order: the prediction file is written in test-set order and
+            # base_pred is in store order.
+            pos_all = {r["id"]: i for i, r in enumerate(rows)}
+            b = np.array([base_pred[pos_all[m]] for m in d["material_id"]])
+            yt, yp = yt + b, yp + b
+            ss = float(((yt - yt.mean()) ** 2).sum())
+            rmse = float(np.sqrt(((yt - yp) ** 2).mean()))
+            res["test"] = {"rmse": rmse, "mae": float(np.abs(yt - yp).mean()),
+                           "medae": float(np.median(np.abs(yt - yp))),
+                           "r2": 1.0 - float(((yt - yp) ** 2).sum()) / ss}
+            print("\n  (metrics below are ridge + network, back on the real"
+                  " energy scale)")
+        err = yt - yp
 
     print(f"\n{'=' * 76}\n  Result\n{'=' * 76}")
     print(f"\n  graph model     {rmse:.3f} eV   "

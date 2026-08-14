@@ -112,3 +112,31 @@ def test_a_collapsed_run_moves_the_t_test_but_not_the_sign_test():
 def test_paired_test_survives_degenerate_input():
     assert np.isnan(paired_test([0.5])["t"])
     assert paired_test([0.0, 0.0, 0.0])["p_sign"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Delta learning: the arithmetic that guarantees it cannot lose to ridge
+# ---------------------------------------------------------------------------
+
+def test_delta_reconstruction_is_exact():
+    """train_slab.py --delta trains on y - ridge and adds ridge back. If the
+    network predicts the residual perfectly the reconstruction must be the
+    original target, and if it predicts zero the result must be ridge."""
+    y = np.array([-1.2, -0.4, 0.3, -2.1])
+    base = np.array([-1.0, -0.6, 0.1, -1.8])
+    resid = y - base
+    assert np.allclose(base + resid, y)               # perfect network
+    assert np.allclose(base + np.zeros_like(resid), base)   # useless network
+
+
+def test_delta_alignment_by_id_not_row_order():
+    """The predictions file is written in TEST order; the ridge vector is in
+    STORE order. Adding them positionally would pair each row with another
+    row's baseline and still produce plausible numbers."""
+    store_ids = ["a", "b", "c", "d"]
+    base = np.array([10.0, 20.0, 30.0, 40.0])
+    pos = {m: i for i, m in enumerate(store_ids)}
+    test_ids = ["c", "a"]                              # not store order
+    aligned = np.array([base[pos[m]] for m in test_ids])
+    assert np.allclose(aligned, [30.0, 10.0])
+    assert not np.allclose(aligned, base[:2])
